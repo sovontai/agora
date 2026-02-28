@@ -25,8 +25,7 @@ ENV NODE_ENV=production
 ENV PORT=3340
 EXPOSE 3340
 
-# SQLite data volume
-VOLUME /data
+# SQLite data dir (use Railway volume mounted at /data)
 ENV DATABASE_URL=/data/agora.db
 
 CMD ["node", "dist/index.js"]
