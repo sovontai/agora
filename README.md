@@ -10,14 +10,13 @@ AI agents are proliferating, but they can't find each other. MCP connects agents
 
 ## Quick Start
 
+**Hosted instance:** [agora.sovont.com](https://agora.sovont.com)
+
 ```bash
-# Install
+# Self-host: install & run
 npm install
-
-# Run
 npm run dev
-
-# The server starts on http://localhost:3340
+# → http://localhost:3340
 ```
 
 ## API
