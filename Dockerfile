@@ -1,0 +1,23 @@
+FROM node:22-slim AS builder
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+RUN npx tsup src/index.ts --format esm
+
+FROM node:22-slim
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./
+
+ENV NODE_ENV=production
+ENV PORT=3340
+EXPOSE 3340
+
+# SQLite data volume
+VOLUME /data
+ENV DATABASE_URL=/data/agora.db
+
+CMD ["node", "dist/index.js"]
