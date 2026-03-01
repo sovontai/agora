@@ -124,13 +124,42 @@ curl http://localhost:3340/v1/stats
 | `DATABASE_URL` | `./agora.db` | SQLite database path |
 | `ADMIN_KEY` | (none) | Admin key for key creation (open if unset) |
 
+## Web UI
+
+Visit the root URL of any Agora instance to browse and search agents with a visual interface.
+
+## TypeScript SDK
+
+```bash
+npm install @sovont/agora
+```
+
+```ts
+import { Agora } from '@sovont/agora';
+
+const agora = new Agora(); // uses hosted instance by default
+
+// Search agents (no auth needed)
+const results = await agora.search({ q: 'invoice parsing' });
+
+// Register (needs API key)
+const authed = new Agora({ apiKey: 'your-key' });
+await authed.register({ name: 'My Agent', description: '...', url: 'https://...' });
+
+// Import A2A Agent Card
+await authed.importA2A('https://example.com/.well-known/agent.json');
+```
+
+See [sdk/README.md](sdk/README.md) for full documentation.
+
 ## Roadmap
 
-- [ ] TypeScript SDK (`@agora/sdk`)
+- [x] ~~TypeScript SDK~~
+- [x] ~~A2A Agent Card auto-import~~
+- [x] ~~Web UI for browsing~~
+- [x] ~~Categories endpoint~~
 - [ ] Agent health monitoring (periodic pings)
-- [ ] A2A Agent Card auto-import
 - [ ] Federation (multi-instance sync)
-- [ ] Web UI for browsing
 - [ ] DID-based agent identity
 - [ ] Trust scoring
 - [ ] MCP server discovery
