@@ -6,6 +6,7 @@ import keyRoutes from "./routes/keys.js";
 import statsRoutes from "./routes/stats.js";
 import categoryRoutes from "./routes/categories.js";
 import importRoutes from "./routes/import.js";
+import healthRoutes from "./routes/health.js";
 import uiRoutes from "./routes/ui.js";
 import { handleError } from "./middleware/errors.js";
 
@@ -43,6 +44,7 @@ app.route("/v1/keys", keyRoutes);
 app.route("/v1/stats", statsRoutes);
 app.route("/v1/categories", categoryRoutes);
 app.route("/v1/import", importRoutes);
+app.route("/v1/health", healthRoutes);
 
 // Error handling
 app.onError(handleError);
