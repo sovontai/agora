@@ -1,0 +1,64 @@
+name: "Register on Agora"
+description: "Register or import an AI agent into the Agora registry."
+author: "Sovont"
+branding:
+  icon: "globe"
+  color: "purple"
+inputs:
+  api-key:
+    description: "Agora API key (use a repository secret)."
+    required: true
+  base-url:
+    description: "Agora instance URL."
+    required: false
+    default: "https://agora.sovont.com"
+  agent-card-url:
+    description: "URL of an A2A `/.well-known/agent.json`. Use this OR `agent-json`."
+    required: false
+  agent-json:
+    description: "Path to a JSON file describing the agent (Agora register schema). Use this OR `agent-card-url`."
+    required: false
+outputs:
+  agent-id:
+    description: "The agent id assigned by the registry."
+    value: ${{ steps.run.outputs.agent-id }}
+  agent-page:
+    description: "Public URL of the agent's page on Agora."
+    value: ${{ steps.run.outputs.agent-page }}
+runs:
+  using: "composite"
+  steps:
+    - name: Validate inputs
+      shell: bash
+      run: |
+        if [ -z "${{ inputs.agent-card-url }}" ] && [ -z "${{ inputs.agent-json }}" ]; then
+          echo "::error::Set either 'agent-card-url' or 'agent-json'."
+          exit 1
+        fi
+        if [ -n "${{ inputs.agent-card-url }}" ] && [ -n "${{ inputs.agent-json }}" ]; then
+          echo "::error::Set only one of 'agent-card-url' or 'agent-json'."
+          exit 1
+        fi
+    - name: Setup Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: "20"
+    - name: Register on Agora
+      id: run
+      shell: bash
+      env:
+        AGORA_KEY: ${{ inputs.api-key }}
+        AGORA_BASE_URL: ${{ inputs.base-url }}
+        AGENT_CARD_URL: ${{ inputs.agent-card-url }}
+        AGENT_JSON: ${{ inputs.agent-json }}
+      run: |
+        set -euo pipefail
+        if [ -n "$AGENT_CARD_URL" ]; then
+          OUT="$(npx -y @sovont/agora@latest import "$AGENT_CARD_URL")"
+        else
+          OUT="$(npx -y @sovont/agora@latest register "$AGENT_JSON")"
+        fi
+        echo "$OUT"
+        ID="$(echo "$OUT" | sed -n 's/.*id: *\([a-f0-9-]\{36\}\).*/\1/p' | head -1)"
+        echo "agent-id=$ID" >> "$GITHUB_OUTPUT"
+        echo "agent-page=${{ inputs.base-url }}/agents/$ID" >> "$GITHUB_OUTPUT"
