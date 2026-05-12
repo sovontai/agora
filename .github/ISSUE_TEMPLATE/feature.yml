@@ -1,0 +1,22 @@
+name: Feature proposal
+description: Propose a change to Agora's scope or behaviour.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: User-facing problem first. "More knobs" usually isn't a problem.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you build?
+      description: Rough API / UX sketch. Don't worry about the full design.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What else did you consider?
