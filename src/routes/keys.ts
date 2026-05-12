@@ -1,21 +1,23 @@
 import { Hono } from "hono";
-import { config } from "../config.js";
+import { z } from "zod";
+import { requireAdmin } from "../middleware/auth.js";
 import { createApiKey } from "../services/keys.js";
 
 const app = new Hono();
 
-// Create API key (requires admin key or open registration)
-app.post("/", async (c) => {
-  // If ADMIN_KEY is set, require it. Otherwise, open registration.
-  if (config.adminKey) {
-    const auth = c.req.header("Authorization");
-    if (auth !== `Bearer ${config.adminKey}`) {
-      return c.json({ error: "Admin key required" }, 401);
-    }
-  }
+const CreateKeySchema = z.object({
+  name: z.string().min(1).max(120).optional(),
+  isAdmin: z.boolean().optional(),
+});
 
-  const body = await c.req.json().catch(() => ({}));
-  const result = await createApiKey(body.name);
+/**
+ * Create an API key. Fail-closed: requires admin auth — either the ADMIN_KEY
+ * env var or an existing api key flagged is_admin.
+ */
+app.post("/", requireAdmin, async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as unknown;
+  const parsed = CreateKeySchema.parse(body ?? {});
+  const result = await createApiKey(parsed.name, parsed.isAdmin ?? false);
   return c.json(result, 201);
 });
 
