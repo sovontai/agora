@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { html, raw } from "hono/html";
 import { getAgent, searchAgents, getStats } from "../services/agents.js";
+import { sqlite } from "../db/index.js";
 
 const app = new Hono();
 
@@ -96,6 +97,10 @@ const indexStyles = `
 .agent-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .empty { text-align: center; padding: 60px 20px; color: var(--text-muted); }
 .empty-icon { font-size: 3rem; margin-bottom: 16px; }
+.button-cta { display: inline-flex; align-items: center; padding: 10px 18px; background: var(--accent); color: white; border-radius: 8px; font-size: 0.9rem; font-weight: 500; }
+.button-cta:hover { background: var(--accent-dim); text-decoration: none; }
+.button-cta.button-secondary { background: transparent; border: 1px solid var(--border); color: var(--text); }
+.button-cta.button-secondary:hover { background: var(--surface); border-color: var(--accent-dim); color: var(--accent); }
 .pagination { display: flex; justify-content: center; gap: 8px; margin-top: 32px; }
 .pagination a { padding: 6px 14px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); color: var(--text-muted); font-size: 0.85rem; }
 .pagination a:hover { color: var(--text); text-decoration: none; border-color: var(--accent-dim); }
@@ -147,9 +152,12 @@ function headerBlock() {
     <div class="container header-inner">
       <a class="logo" href="/" style="color:inherit;text-decoration:none"><span class="logo-icon">${raw("&#x1f3db;")}</span> Agora</a>
       <div class="header-links">
-        <a href="/v1/agents">API</a>
         <a href="/v1/docs">Docs</a>
+        <a href="/v1/openapi.json">API</a>
+        <a href="https://github.com/sovontai/agora#typescript-sdk" target="_blank">SDK</a>
+        <a href="https://github.com/sovontai/agora/tree/main/mcp" target="_blank">MCP</a>
         <a href="https://github.com/sovontai/agora" target="_blank">GitHub</a>
+        <a href="https://github.com/sovontai/agora#register-an-agent" style="color:var(--accent);font-weight:500;">+ Register</a>
       </div>
     </div>
   </header>`;
@@ -158,7 +166,7 @@ function headerBlock() {
 function footerBlock() {
   return html`<footer>
     <div class="container">
-      Agora v0.2.0 — <a href="/v1/openapi.json">OpenAPI</a> — <a href="/.well-known/agora">.well-known</a> — <a href="https://github.com/sovontai/agora">Apache 2.0</a>
+      Agora v0.3.0 — <a href="/v1/openapi.json">OpenAPI</a> — <a href="/v1/docs">Docs</a> — <a href="/.well-known/agora">.well-known</a> — <a href="/llms.txt">llms.txt</a> — <a href="https://github.com/sovontai/agora">Apache 2.0</a>
     </div>
   </footer>`;
 }
@@ -180,10 +188,11 @@ function metaBlock(opts: {
 <meta property="og:title" content="${opts.title}">
 <meta property="og:description" content="${opts.description}">
 <meta property="og:url" content="${opts.url}">
-${opts.image ? html`<meta property="og:image" content="${opts.image}">` : ""}
-<meta name="twitter:card" content="summary">
+${opts.image ? html`<meta property="og:image" content="${opts.image}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">` : ""}
+<meta name="twitter:card" content="${opts.image ? "summary_large_image" : "summary"}">
 <meta name="twitter:title" content="${opts.title}">
 <meta name="twitter:description" content="${opts.description}">
+${opts.image ? html`<meta name="twitter:image" content="${opts.image}">` : ""}
 ${
   opts.jsonLd
     ? html`<script type="application/ld+json">${raw(JSON.stringify(opts.jsonLd))}</script>`
@@ -233,6 +242,7 @@ ${metaBlock({
   title: `${SITE_NAME} — ${SITE_TAGLINE}`,
   description: DEFAULT_DESC,
   url: currentUrl,
+  image: siteUrl(c, "/v1/og/site.svg"),
   jsonLd: {
     "@context": "https://schema.org",
     "@type": "WebSite",
@@ -254,6 +264,10 @@ ${headerBlock()}
   <section class="hero">
     <h1>Discover <span>AI agents</span></h1>
     <p>${DEFAULT_DESC}</p>
+    <div class="hero-actions" style="display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin-top:20px;">
+      <a href="https://github.com/sovontai/agora/tree/main/mcp#install" class="button-cta">Use from Claude / Cursor</a>
+      <a href="https://github.com/sovontai/agora#register-an-agent" class="button-cta button-secondary">Register your agent</a>
+    </div>
   </section>
 
   <div class="stats-bar">
@@ -398,6 +412,7 @@ ${metaBlock({
   title,
   description: desc || DEFAULT_DESC,
   url: pageUrl,
+  image: siteUrl(c, `/v1/og/agents/${agent.id}.svg`),
   jsonLd,
 })}
 <style>${raw(baseStyles)}${raw(agentStyles)}</style>
@@ -505,6 +520,129 @@ ${headerBlock()}
       </div>
     </aside>
   </div>
+</main>
+${footerBlock()}
+</body>
+</html>`);
+});
+
+// ── Category landing pages (SEO-targeted) ──────────────────────────────────
+
+app.get("/categories/:slug", async (c) => {
+  const slug = c.req.param("slug").toLowerCase();
+  const pretty = slug
+    .split("-")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+
+  const url = new URL(c.req.url);
+  const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10) || 1);
+  const limit = 24;
+  const offset = (page - 1) * limit;
+
+  const list = await searchAgents({
+    category: slug,
+    limit,
+    offset,
+  } as any);
+
+  if (list.total === 0) {
+    c.status(404);
+    return c.html(html`<!doctype html><html><head><title>${esc(pretty)} agents — Agora</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1"><style>${raw(baseStyles)}</style></head>
+    <body>${headerBlock()}
+    <main class="container" style="text-align:center;padding:80px 20px;">
+      <h1 style="font-size:1.5rem;margin-bottom:12px;">No agents in the "${esc(pretty)}" category yet</h1>
+      <p style="color:var(--text-muted);">Be the first — <a href="https://github.com/sovontai/agora#register-an-agent">register an agent</a>.</p>
+      <p style="margin-top:20px;"><a href="/">${raw("&larr;")} Browse all agents</a></p>
+    </main>${footerBlock()}</body></html>`);
+  }
+
+  // Common tags across the category for internal links
+  const tagRows = sqlite
+    .prepare(
+      `SELECT json_each.value AS tag, COUNT(*) AS count
+       FROM agents, json_each(agents.categories) AS cat, json_each(agents.tags)
+       WHERE cat.value = ?
+       GROUP BY json_each.value
+       ORDER BY count DESC LIMIT 20`
+    )
+    .all(slug) as Array<{ tag: string; count: number }>;
+
+  const totalPages = Math.max(1, Math.ceil(list.total / limit));
+  const pageUrl = siteUrl(c, `/categories/${encodeURIComponent(slug)}`);
+  const title = `Best ${pretty} AI agents — Agora`;
+  const description = `Discover ${list.total} AI agent${list.total === 1 ? "" : "s"} in the ${pretty} category. ${list.agents
+    .slice(0, 3)
+    .map((a: any) => a.name)
+    .join(", ")}${list.agents.length > 3 ? ", and more." : "."}`;
+
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "CollectionPage",
+    name: title,
+    description,
+    url: pageUrl,
+    mainEntity: {
+      "@type": "ItemList",
+      numberOfItems: list.total,
+      itemListElement: list.agents.slice(0, 10).map((a: any, i: number) => ({
+        "@type": "ListItem",
+        position: i + 1,
+        url: siteUrl(c, `/agents/${a.id}`),
+        name: a.name,
+      })),
+    },
+  };
+
+  return c.html(html`<!DOCTYPE html>
+<html lang="en">
+<head>
+${metaBlock({
+  title,
+  description,
+  url: pageUrl,
+  image: siteUrl(c, `/v1/og/categories/${encodeURIComponent(slug)}.svg`),
+  jsonLd,
+})}
+<style>${raw(baseStyles)}${raw(indexStyles)}</style>
+</head>
+<body>
+${headerBlock()}
+<main class="container">
+  <section class="hero" style="padding-top:32px;padding-bottom:24px;">
+    <div class="breadcrumb" style="font-size:0.85rem;color:var(--text-muted);margin-bottom:8px;"><a href="/" style="color:inherit;">Agora</a> / Categories / ${esc(pretty)}</div>
+    <h1 style="font-size:2rem;letter-spacing:-0.02em;margin-bottom:8px;">${esc(pretty)} <span>agents</span></h1>
+    <p style="color:var(--text-muted);max-width:620px;margin:0 auto;">${list.total} agent${list.total === 1 ? "" : "s"} registered under ${esc(pretty)}. Verified and healthy agents are shown first.</p>
+  </section>
+
+  ${
+    tagRows.length
+      ? html`<nav class="filters" aria-label="Popular tags">
+          ${tagRows.map(
+            (t) => html`<a class="filter-btn" href="/?category=${encodeURIComponent(slug)}&tag=${encodeURIComponent(t.tag)}">${esc(t.tag)} <span style="color:var(--text-muted);margin-left:4px;">${t.count}</span></a>`
+          )}
+        </nav>`
+      : ""
+  }
+
+  <section class="agents-grid" aria-label="Agents">
+    ${list.agents.map((a: any) => agentCardHtml(a))}
+  </section>
+
+  ${
+    totalPages > 1
+      ? html`<div class="pagination">
+          ${page > 1
+            ? html`<a href="${pageUrl}?page=${page - 1}">${raw("&larr;")} Prev</a>`
+            : ""}
+          <span class="current">Page ${page} of ${totalPages}</span>
+          ${page < totalPages
+            ? html`<a href="${pageUrl}?page=${page + 1}">Next ${raw("&rarr;")}</a>`
+            : ""}
+        </div>`
+      : ""
+  }
 </main>
 ${footerBlock()}
 </body>

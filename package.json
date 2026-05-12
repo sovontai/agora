@@ -1,6 +1,6 @@
 {
   "name": "agora",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Open agent registry and discovery service — DNS for AI agents",
   "type": "module",
   "scripts": {

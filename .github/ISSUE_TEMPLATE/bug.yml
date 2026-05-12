@@ -1,0 +1,45 @@
+name: Bug report
+description: Something is broken in the registry, SDK, CLI, or MCP server.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Reproducible cases get fixed first.
+  - type: input
+    id: component
+    attributes:
+      label: Which component?
+      description: server / sdk / cli / mcp / docs / hosted instance / other
+      placeholder: server
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      placeholder: 0.3.0
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: Steps, or — even better — a failing test case.
+      placeholder: |
+        1. POST /v1/agents with body ...
+        2. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What actually happened?
+    validations:
+      required: true

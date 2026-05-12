@@ -12,7 +12,7 @@ app.get("/agora", async (c) => {
   return c.json(
     {
       name: "Agora",
-      version: "0.2.0",
+      version: "0.3.0",
       protocol: "agora/1",
       endpoints: {
         agents: "/v1/agents",

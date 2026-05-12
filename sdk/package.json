@@ -1,15 +1,20 @@
 {
   "name": "@sovont/agora",
-  "version": "0.2.0",
-  "description": "TypeScript SDK for the Agora agent registry — discover and register AI agents",
+  "version": "0.3.0",
+  "description": "TypeScript SDK + CLI for the Agora agent registry — discover and register AI agents",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "bin": {
+    "agora": "dist/cli.js"
+  },
   "files": [
-    "dist"
+    "dist",
+    "README.md"
   ],
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts",
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
@@ -19,7 +24,8 @@
     "discovery",
     "a2a",
     "mcp",
-    "agora"
+    "agora",
+    "cli"
   ],
   "license": "Apache-2.0",
   "author": "Sovont <hello@sovont.com>",
@@ -28,7 +34,8 @@
     "url": "https://github.com/sovontai/agora",
     "directory": "sdk"
   },
-  "dependencies": {
+  "devDependencies": {
+    "@types/node": "^22.0.0",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3"
   }

@@ -9,7 +9,7 @@ import "./db/index.js";
 
 console.log(`
   ╔══════════════════════════════════════╗
-  ║           🏛️  AGORA  v0.2.0          ║
+  ║           🏛️  AGORA  v0.3.0          ║
   ║    Open Agent Registry & Discovery   ║
   ╚══════════════════════════════════════╝
 `);

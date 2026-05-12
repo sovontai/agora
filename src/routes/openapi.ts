@@ -6,7 +6,7 @@ const spec = {
   openapi: "3.1.0",
   info: {
     title: "Agora",
-    version: "0.2.0",
+    version: "0.3.0",
     description:
       "Open agent registry and discovery service — DNS for AI agents. Built to complement A2A and MCP.",
     license: { name: "Apache-2.0", url: "https://www.apache.org/licenses/LICENSE-2.0" },

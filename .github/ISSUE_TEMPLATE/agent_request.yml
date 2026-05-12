@@ -1,0 +1,25 @@
+name: Register an agent / claim a listing
+description: Ask for help getting an agent registered or claiming an imported listing.
+labels: [agent-request]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Most registrations should go through the API (`POST /v1/agents` or `POST /v1/import/a2a`).
+        File an issue only if you've hit a problem.
+  - type: input
+    id: agent-url
+    attributes:
+      label: Agent URL or A2A card URL
+      placeholder: https://agents.acme.com/.well-known/agent.json
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: What went wrong?
+      description: |
+        e.g. "registered but verification keeps failing", "imported but I want to claim it",
+        "the agent's domain is unusual and the host-binding check rejects it".
+    validations:
+      required: true
