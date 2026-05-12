@@ -8,6 +8,28 @@ Agora is an open-source registry where AI agents can be registered, discovered, 
 
 AI agents are proliferating, but they can't find each other. MCP connects agents to tools. A2A lets agents talk to each other. **Agora lets agents discover each other in the first place.**
 
+## Use it from Claude, Cursor, Zed, or any MCP client
+
+The fastest way to use Agora is from inside your AI assistant — install [`@sovont/agora-mcp`](mcp/) once and ask:
+
+> "Find me an agent that parses PDF invoices."
+
+```jsonc
+// claude_desktop_config.json (or any MCP client)
+{
+  "mcpServers": {
+    "agora": { "command": "npx", "args": ["-y", "@sovont/agora-mcp"] }
+  }
+}
+```
+
+## Use it from the CLI
+
+```bash
+npx -y @sovont/agora search "invoice parsing"
+npx -y @sovont/agora import https://acme.com/.well-known/agent.json
+```
+
 ## Quick Start
 
 **Hosted instance:** [agora.sovont.com](https://agora.sovont.com)
@@ -177,25 +199,87 @@ Agora runs two background loops:
 
 Both can also be triggered on demand: `POST /v1/health/check` and `POST /v1/health/reverify` (admin auth).
 
+## Distribution & ecosystem
+
+| Package | What it is |
+|---------|-----------|
+| [`@sovont/agora`](sdk/) | TypeScript SDK + CLI (single install). `import { Agora }` in code; `npx @sovont/agora` from a terminal. |
+| [`@sovont/agora-mcp`](mcp/) | MCP server. Talk to Agora from Claude, Cursor, Zed, Continue. |
+| [`sovontai/agora/.github/actions/register`](.github/actions/register/) | GitHub Action to register-on-release. |
+
+```bash
+# CLI
+npx -y @sovont/agora search "invoice parsing"
+npx -y @sovont/agora stats
+npx -y @sovont/agora import https://acme.com/.well-known/agent.json
+```
+
+```yaml
+# GitHub Action — register your agent on every release
+- uses: sovontai/agora/.github/actions/register@main
+  with:
+    api-key: ${{ secrets.AGORA_KEY }}
+    agent-card-url: https://acme.com/.well-known/agent.json
+```
+
+## SEO & crawlability
+
+Every agent page is server-rendered with `<title>`, `<meta description>`, canonical URLs, OG/Twitter cards (with per-agent SVG OG images at `/v1/og/agents/<id>.svg`), and JSON-LD `SoftwareApplication` markup. The registry exposes:
+
+- `/robots.txt` — explicit allow for GPTBot, ClaudeBot, PerplexityBot, Google-Extended, and friends
+- `/sitemap.xml` — every agent + category page, regenerated from the DB
+- `/llms.txt` — markdown index for LLM crawlers (top categories + sample verified agents)
+- `/categories/:slug` — SEO-targeted category landing pages with structured `CollectionPage` data
+
+## Claiming an imported listing
+
+Admins can bulk-import agents from a list of A2A card URLs:
+
+```bash
+curl -X POST https://agora.sovont.com/v1/import/bulk \
+  -H "Authorization: Bearer $ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "urls": [
+    "https://a.example.com/.well-known/agent.json",
+    "https://b.example.com/.well-known/agent.json"
+  ]}'
+```
+
+Imported listings are owned by a `claimable:*` sentinel — the real owner can claim it via DNS-TXT verification, exactly like ACME for SSL. Claiming both takes ownership and marks the agent verified in one step. A fresh API key is returned to the new owner.
+
+```bash
+# 1. Begin a claim (anonymous)
+curl -X POST https://agora.sovont.com/v1/agents/$ID/claim
+# → returns TXT record to add at _agora-verify.<host>
+
+# 2. After DNS propagates
+curl -X POST https://agora.sovont.com/v1/agents/$ID/claim/confirm
+# → returns { claimed: true, apiKey: { key: "agora_…" } }
+```
+
 ## Roadmap
 
 - [x] Agent CRUD + full-text search with safe FTS escaping
 - [x] DNS-TXT domain verification bound to the agent URL host
 - [x] Periodic re-verification + auto-revocation on stale records
 - [x] Health sweep with HEAD/GET fallback + auto-deactivation
-- [x] A2A Agent Card import (idempotent)
+- [x] A2A Agent Card import (idempotent) + bulk import
 - [x] MCP tool manifest fetching + indexed search (`?tool=…`)
-- [x] TypeScript SDK with `badgeUrl` helper
-- [x] Server-rendered agent pages (OG + JSON-LD) — addressable, crawlable
+- [x] **MCP server** (`@sovont/agora-mcp`) — discover agents from inside Claude/Cursor/Zed
+- [x] **TypeScript SDK + CLI** (`@sovont/agora`)
+- [x] **GitHub Action** — register-on-release
+- [x] Server-rendered agent + category landing pages (OG + JSON-LD)
+- [x] OG image generation (per-agent, per-category, site)
+- [x] robots.txt + sitemap.xml + llms.txt with AI-crawler allow-list
 - [x] Verification + health badge SVGs
 - [x] OpenAPI 3.1 spec + Swagger UI at `/v1/docs`
 - [x] `.well-known/agora` discovery endpoint
 - [x] Rate limiting
+- [x] **Claim-your-listing flow** for imported agents
 - [ ] Federation (multi-instance sync)
 - [ ] Cryptographic agent identity (DID / signed cards)
 - [ ] Trust scoring (uptime + verification + curation signals)
 - [ ] Postgres backend for federation/scale
-- [ ] CLI (`npx @sovont/agora …`)
 - [ ] Moderation / takedown surface
 - [ ] Slug-based handles (`@org/agent`)
 
