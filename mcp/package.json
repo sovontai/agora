@@ -1,0 +1,47 @@
+{
+  "name": "@sovont/agora-mcp",
+  "version": "0.3.0",
+  "description": "MCP server for the Agora agent registry — discover AI agents from inside Claude, Cursor, Zed, and any MCP client.",
+  "type": "module",
+  "bin": {
+    "agora-mcp": "./dist/index.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "ai",
+    "agents",
+    "agent-discovery",
+    "agora",
+    "registry"
+  ],
+  "license": "Apache-2.0",
+  "author": "Sovont <hello@sovont.com>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sovontai/agora",
+    "directory": "mcp"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsup": "^8.5.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}
