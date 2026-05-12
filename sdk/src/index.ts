@@ -1,33 +1,29 @@
 /**
- * Agora SDK — TypeScript client for the Agora agent registry
+ * Agora SDK — TypeScript client for the Agora agent registry.
  *
  * @example
  * ```ts
  * import { Agora } from '@sovont/agora';
  *
- * const agora = new Agora({ apiKey: 'your-key' });
+ * const agora = new Agora();                       // anonymous reads
+ * const auth = new Agora({ apiKey: 'agora_…' });   // authenticated writes
  *
- * // Register an agent
- * await agora.register({
- *   name: 'My Agent',
- *   description: 'Does cool things',
- *   url: 'https://myagent.com',
- *   categories: ['automation'],
- * });
- *
- * // Search agents
  * const results = await agora.search({ q: 'invoice parsing' });
- *
- * // Discover by category
- * const finance = await agora.search({ category: 'finance' });
+ * const tooling = await agora.search({ tool: 'send_email' });   // MCP tools
+ * await auth.register({ name: 'My Agent', description: '…', url: 'https://…' });
+ * await auth.verify(agent.id, 'agents.acme.com');
+ * const { instructions } = await auth.verify(agent.id, 'acme.com');
+ * await auth.verifyConfirm(agent.id);
  * ```
  */
 
 export interface AgoraConfig {
-  /** Base URL of the Agora instance */
+  /** Base URL of the Agora instance. */
   baseUrl?: string;
-  /** API key for authenticated operations (register, update, delete) */
+  /** API key for authenticated operations. */
   apiKey?: string;
+  /** Override the fetch implementation (e.g. for testing or proxying). */
+  fetch?: typeof fetch;
 }
 
 export interface Capability {
@@ -39,14 +35,14 @@ export interface Capability {
 }
 
 export interface Provider {
-  organization?: string;
-  contact?: string;
-  url?: string;
+  organization?: string | null;
+  contact?: string | null;
+  url?: string | null;
 }
 
 export interface Protocols {
-  a2a?: { agentCardUrl: string };
-  mcp?: { serverUrl: string };
+  a2a?: { agentCardUrl: string } | null;
+  mcp?: { serverUrl: string } | null;
 }
 
 export interface RegisterInput {
@@ -62,6 +58,25 @@ export interface RegisterInput {
   authSchemes?: string[];
 }
 
+export interface McpTool {
+  name: string;
+  description?: string;
+  inputSchema?: unknown;
+}
+
+export interface Verification {
+  domain: string | null;
+  verified: boolean;
+  verifiedAt: string | null;
+  checkedAt: string | null;
+}
+
+export interface Health {
+  status: string | null;
+  checkedAt: string | null;
+  consecutiveFailures: number;
+}
+
 export interface Agent {
   id: string;
   name: string;
@@ -73,13 +88,11 @@ export interface Agent {
   categories: string[];
   tags: string[];
   protocols: Protocols;
+  mcpTools: McpTool[];
   authSchemes: string[];
-  verification: {
-    domain: string | null;
-    verified: boolean;
-    verifiedAt: string | null;
-  };
-  status: string;
+  verification: Verification;
+  health: Health;
+  status: "active" | "inactive" | "deprecated";
   registeredAt: string;
   updatedAt: string;
 }
@@ -88,9 +101,10 @@ export interface SearchParams {
   q?: string;
   category?: string;
   tag?: string;
+  tool?: string;
   protocol?: "a2a" | "mcp";
   verified?: boolean;
-  status?: string;
+  status?: "active" | "inactive" | "deprecated";
   limit?: number;
   offset?: number;
 }
@@ -113,98 +127,113 @@ export interface Stats {
   verifiedAgents: number;
   a2aAgents: number;
   mcpAgents: number;
+  healthyAgents: number;
+}
+
+export interface VerifyInstructions {
+  domain: string;
+  token: string;
+  instructions: {
+    method: "dns-txt";
+    record: string;
+    value: string;
+    description: string;
+  };
+}
+
+export interface VerifyConfirmResult {
+  verified: boolean;
+  domain?: string;
+  error?: "no_verification_pending" | "token_not_found" | "dns_lookup_failed";
+  expected?: string;
+  message?: string;
+}
+
+export interface PingResult {
+  status: string;
+  statusCode?: number;
+  durationMs: number;
 }
 
 export class AgoraError extends Error {
-  constructor(
-    public status: number,
-    public body: any
-  ) {
+  constructor(public status: number, public body: unknown) {
     super(`Agora API error (${status}): ${JSON.stringify(body)}`);
     this.name = "AgoraError";
   }
 }
 
-const DEFAULT_BASE_URL = "https://agora-production-ee3b.up.railway.app";
+const DEFAULT_BASE_URL = "https://agora.sovont.com";
 
 export class Agora {
   private baseUrl: string;
   private apiKey?: string;
+  private fetchImpl: typeof fetch;
 
   constructor(config: AgoraConfig = {}) {
     this.baseUrl = (config.baseUrl || DEFAULT_BASE_URL).replace(/\/$/, "");
     this.apiKey = config.apiKey;
+    this.fetchImpl = config.fetch ?? globalThis.fetch;
   }
 
-  private async request<T>(
-    path: string,
-    options: RequestInit = {}
-  ): Promise<T> {
+  private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       ...(options.headers as Record<string, string>),
     };
+    if (this.apiKey) headers["Authorization"] = `Bearer ${this.apiKey}`;
 
-    if (this.apiKey) {
-      headers["Authorization"] = `Bearer ${this.apiKey}`;
-    }
-
-    const res = await fetch(`${this.baseUrl}${path}`, {
+    const res = await this.fetchImpl(`${this.baseUrl}${path}`, {
       ...options,
       headers,
     });
 
-    const body = await res.json();
-
-    if (!res.ok) {
-      throw new AgoraError(res.status, body);
+    const text = await res.text();
+    let body: unknown = text;
+    if (text) {
+      try {
+        body = JSON.parse(text);
+      } catch {
+        /* keep raw */
+      }
     }
-
+    if (!res.ok) throw new AgoraError(res.status, body);
     return body as T;
   }
 
-  // ── Public (no auth required) ──────────────────────
+  // ── Public reads ────────────────────────────────────────────────────────
 
-  /** Search and list agents */
   async search(params: SearchParams = {}): Promise<SearchResult> {
     const qs = new URLSearchParams();
-    if (params.q) qs.set("q", params.q);
-    if (params.category) qs.set("category", params.category);
-    if (params.tag) qs.set("tag", params.tag);
-    if (params.protocol) qs.set("protocol", params.protocol);
-    if (params.verified !== undefined)
-      qs.set("verified", String(params.verified));
-    if (params.status) qs.set("status", params.status);
-    if (params.limit) qs.set("limit", String(params.limit));
-    if (params.offset) qs.set("offset", String(params.offset));
-
+    for (const [k, v] of Object.entries(params)) {
+      if (v === undefined || v === null) continue;
+      qs.set(k, String(v));
+    }
     const query = qs.toString();
-    return this.request<SearchResult>(
-      `/v1/agents${query ? `?${query}` : ""}`
-    );
+    return this.request<SearchResult>(`/v1/agents${query ? `?${query}` : ""}`);
   }
 
-  /** Get a single agent by ID */
   async get(id: string): Promise<Agent> {
-    return this.request<Agent>(`/v1/agents/${id}`);
+    return this.request<Agent>(`/v1/agents/${encodeURIComponent(id)}`);
   }
 
-  /** List all categories with agent counts */
   async categories(): Promise<Category[]> {
-    const res = await this.request<{ categories: Category[] }>(
-      `/v1/categories`
-    );
+    const res = await this.request<{ categories: Category[] }>(`/v1/categories`);
     return res.categories;
   }
 
-  /** Get registry statistics */
   async stats(): Promise<Stats> {
     return this.request<Stats>(`/v1/stats`);
   }
 
-  // ── Authenticated (API key required) ───────────────
+  /** URL of the verification badge SVG for an agent. */
+  badgeUrl(id: string, kind: "verification" | "health" = "verification"): string {
+    return kind === "health"
+      ? `${this.baseUrl}/v1/badge/${encodeURIComponent(id)}/health.svg`
+      : `${this.baseUrl}/v1/badge/${encodeURIComponent(id)}.svg`;
+  }
 
-  /** Register a new agent */
+  // ── Authenticated writes ────────────────────────────────────────────────
+
   async register(input: RegisterInput): Promise<Agent> {
     return this.request<Agent>("/v1/agents", {
       method: "POST",
@@ -212,47 +241,45 @@ export class Agora {
     });
   }
 
-  /** Update an existing agent */
   async update(id: string, input: Partial<RegisterInput>): Promise<Agent> {
-    return this.request<Agent>(`/v1/agents/${id}`, {
+    return this.request<Agent>(`/v1/agents/${encodeURIComponent(id)}`, {
       method: "PUT",
       body: JSON.stringify(input),
     });
   }
 
-  /** Delete an agent */
   async delete(id: string): Promise<{ deleted: boolean }> {
-    return this.request<{ deleted: boolean }>(`/v1/agents/${id}`, {
-      method: "DELETE",
-    });
+    return this.request<{ deleted: boolean }>(
+      `/v1/agents/${encodeURIComponent(id)}`,
+      { method: "DELETE" }
+    );
   }
 
-  /** Import an A2A Agent Card from a URL */
-  async importA2A(agentCardUrl: string): Promise<{ imported: boolean; agent: Agent }> {
-    return this.request<{ imported: boolean; agent: Agent }>("/v1/import/a2a", {
+  /** Import an A2A Agent Card; idempotent per (owner, source URL). */
+  async importA2A(
+    agentCardUrl: string
+  ): Promise<{ imported: boolean; updated: boolean; agent: Agent }> {
+    return this.request("/v1/import/a2a", {
       method: "POST",
       body: JSON.stringify({ url: agentCardUrl }),
     });
   }
 
-  /** Initiate domain verification */
-  async verify(id: string, domain: string) {
-    return this.request<any>(`/v1/agents/${id}/verify`, {
+  async verify(id: string, domain: string): Promise<VerifyInstructions> {
+    return this.request(`/v1/agents/${encodeURIComponent(id)}/verify`, {
       method: "POST",
       body: JSON.stringify({ domain }),
     });
   }
 
-  /** Confirm domain verification */
-  async verifyConfirm(id: string) {
-    return this.request<any>(`/v1/agents/${id}/verify/confirm`, {
+  async verifyConfirm(id: string): Promise<VerifyConfirmResult> {
+    return this.request(`/v1/agents/${encodeURIComponent(id)}/verify/confirm`, {
       method: "POST",
     });
   }
 
-  /** Ping an agent to check health */
-  async ping(id: string) {
-    return this.request<{ status: string }>(`/v1/agents/${id}/ping`, {
+  async ping(id: string): Promise<PingResult> {
+    return this.request(`/v1/agents/${encodeURIComponent(id)}/ping`, {
       method: "POST",
     });
   }
