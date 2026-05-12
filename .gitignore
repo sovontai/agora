@@ -3,4 +3,17 @@ dist/
 *.db
 *.db-journal
 *.db-wal
+*.db-shm
 .env
+.env.*
+!.env.example
+
+# tests
+coverage/
+*.test.db
+.vitest-cache/
+
+# editor
+.DS_Store
+.idea/
+.vscode/

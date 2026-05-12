@@ -1,6 +1,6 @@
 {
   "name": "agora",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Open agent registry and discovery service — DNS for AI agents",
   "type": "module",
   "scripts": {
@@ -10,7 +10,9 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
-    "test": "vitest"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [
     "ai",
