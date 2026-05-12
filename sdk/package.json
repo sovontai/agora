@@ -1,6 +1,6 @@
 {
   "name": "@sovont/agora",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "TypeScript SDK for the Agora agent registry — discover and register AI agents",
   "type": "module",
   "main": "dist/index.js",

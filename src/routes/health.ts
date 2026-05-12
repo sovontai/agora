@@ -1,20 +1,20 @@
 import { Hono } from "hono";
-import { config } from "../config.js";
+import { requireAdmin } from "../middleware/auth.js";
 import { runHealthChecks } from "../services/health.js";
+import { reverifyAllVerified } from "../services/verification.js";
 
 const app = new Hono();
 
-// Trigger health checks (admin only)
-app.post("/check", async (c) => {
-  if (config.adminKey) {
-    const auth = c.req.header("Authorization");
-    if (auth !== `Bearer ${config.adminKey}`) {
-      return c.json({ error: "Admin key required" }, 401);
-    }
-  }
-
+/** Admin: kick off a full health sweep now. */
+app.post("/check", requireAdmin, async (c) => {
   const results = await runHealthChecks();
   return c.json(results);
+});
+
+/** Admin: re-verify every currently-verified agent's DNS TXT record. */
+app.post("/reverify", requireAdmin, async (c) => {
+  const result = await reverifyAllVerified();
+  return c.json(result);
 });
 
 export default app;

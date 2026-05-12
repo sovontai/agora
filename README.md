@@ -13,120 +13,111 @@ AI agents are proliferating, but they can't find each other. MCP connects agents
 **Hosted instance:** [agora.sovont.com](https://agora.sovont.com)
 
 ```bash
-# Self-host: install & run
+# Self-host
 npm install
-npm run dev
-# → http://localhost:3340
+ADMIN_KEY=$(openssl rand -hex 24) npm run dev
+# → http://localhost:3340  (UI)
+# → http://localhost:3340/v1/docs  (interactive API docs)
 ```
+
+Set `ADMIN_KEY` before starting — `POST /v1/keys` is fail-closed and requires it.
 
 ## API
 
-### Create an API Key
+Browse the full interactive spec at **`/v1/docs`** (Swagger UI) or fetch the raw spec from **`/v1/openapi.json`**.
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/v1/agents` | — | Search & list agents (FTS + filters + ranked) |
+| GET | `/v1/agents/:id` | — | Get agent details |
+| POST | `/v1/agents` | Bearer | Register an agent |
+| PUT | `/v1/agents/:id` | Bearer | Update an agent |
+| DELETE | `/v1/agents/:id` | Bearer | Remove an agent |
+| POST | `/v1/agents/:id/verify` | Bearer | Start domain verification (must be related to the agent URL) |
+| POST | `/v1/agents/:id/verify/confirm` | Bearer | Confirm DNS TXT record |
+| POST | `/v1/agents/:id/ping` | Bearer | Health probe an agent |
+| POST | `/v1/import/a2a` | Bearer | Import A2A Agent Card (idempotent) |
+| GET | `/v1/categories` | — | List categories with counts |
+| GET | `/v1/stats` | — | Registry stats (total / verified / A2A / MCP / healthy) |
+| GET | `/v1/badge/:id.svg` | — | Verification badge for embedding |
+| GET | `/v1/badge/:id/health.svg` | — | Health badge for embedding |
+| POST | `/v1/keys` | Admin | Mint API key (requires `ADMIN_KEY` or admin key) |
+| POST | `/v1/health/check` | Admin | Trigger health sweep |
+| POST | `/v1/health/reverify` | Admin | Re-check every verified agent's TXT record |
+| GET | `/.well-known/agora` | — | Instance discovery metadata |
+| GET | `/v1/openapi.json` | — | OpenAPI 3.1 spec |
+
+### Search
+
 ```bash
-curl -X POST http://localhost:3340/v1/keys \
-  -H "Content-Type: application/json" \
-  -d '{"name": "my-app"}'
+# Full-text search across name, description, capabilities, MCP tool names
+curl "https://agora.sovont.com/v1/agents?q=invoice"
+
+# Filter by category, tag, protocol, verified, status
+curl "https://agora.sovont.com/v1/agents?category=finance&protocol=a2a&verified=true"
+
+# Find agents that expose a specific MCP tool
+curl "https://agora.sovont.com/v1/agents?tool=send_email"
+
+# Combine — verified+healthy+a2a results bubble to the top automatically
+curl "https://agora.sovont.com/v1/agents?q=parser&category=finance"
 ```
 
-### Register an Agent
+Pagination: `?limit=20&offset=0`. Limit is capped at 100. Results are ordered by:
+- For text queries: FTS rank, boosted for verified and healthy agents.
+- Otherwise: verified first, healthy first, then newest.
+
+### Register an agent
+
 ```bash
-curl -X POST http://localhost:3340/v1/agents \
-  -H "Authorization: Bearer YOUR_API_KEY" \
+curl -X POST https://agora.sovont.com/v1/agents \
+  -H "Authorization: Bearer $AGORA_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "Invoice Parser Agent",
+    "name": "Invoice Parser",
     "description": "Extracts structured data from PDF invoices",
     "url": "https://agents.acme.com/invoice-parser",
     "capabilities": [{"id": "parse-invoice", "name": "Parse Invoice"}],
     "categories": ["finance", "document-processing"],
     "tags": ["invoice", "ocr", "pdf"],
     "protocols": {
-      "a2a": {"agentCardUrl": "https://agents.acme.com/.well-known/agent.json"}
+      "a2a": {"agentCardUrl": "https://agents.acme.com/.well-known/agent.json"},
+      "mcp": {"serverUrl": "https://agents.acme.com/mcp"}
     }
   }'
 ```
 
-### Search Agents
-```bash
-# Full-text search
-curl "http://localhost:3340/v1/agents?q=invoice"
+If `protocols.mcp.serverUrl` is provided, Agora fetches the server's tool manifest and indexes the tool names so they are searchable.
 
-# Filter by category
-curl "http://localhost:3340/v1/agents?category=finance"
-
-# Filter by protocol support
-curl "http://localhost:3340/v1/agents?protocol=a2a"
-
-# Only verified agents
-curl "http://localhost:3340/v1/agents?verified=true"
-
-# Combine filters
-curl "http://localhost:3340/v1/agents?q=parser&category=finance&verified=true"
-```
-
-### Domain Verification
-Prove ownership of your agent's domain via DNS TXT record:
+### Domain verification
 
 ```bash
-# 1. Initiate verification
-curl -X POST http://localhost:3340/v1/agents/:id/verify \
-  -H "Authorization: Bearer YOUR_API_KEY" \
+# 1. Initiate
+curl -X POST https://agora.sovont.com/v1/agents/$ID/verify \
+  -H "Authorization: Bearer $AGORA_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"domain": "agents.acme.com"}'
+  -d '{"domain": "acme.com"}'
 
-# 2. Add the returned TXT record to: _agora-verify.agents.acme.com
+# 2. Add returned TXT to: _agora-verify.acme.com
 
 # 3. Confirm
-curl -X POST http://localhost:3340/v1/agents/:id/verify/confirm \
-  -H "Authorization: Bearer YOUR_API_KEY"
+curl -X POST https://agora.sovont.com/v1/agents/$ID/verify/confirm \
+  -H "Authorization: Bearer $AGORA_KEY"
 ```
 
-### Health Check
-```bash
-curl -X POST http://localhost:3340/v1/agents/:id/ping \
-  -H "Authorization: Bearer YOUR_API_KEY"
+The domain must equal, be a parent of, or be a subdomain of the agent URL's host — preventing claims of unrelated domains. The registry re-checks the TXT record every 24 hours; verification automatically drops if the record disappears.
+
+### Verification badge
+
+Embed a "Listed on Agora" badge on your agent's site:
+
+```html
+<a href="https://agora.sovont.com/agents/AGENT_ID">
+  <img src="https://agora.sovont.com/v1/badge/AGENT_ID.svg" alt="Listed on Agora"/>
+</a>
 ```
 
-### Stats
-```bash
-curl http://localhost:3340/v1/stats
-```
-
-## API Endpoints
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| GET | `/v1/agents` | No | Search & list agents |
-| GET | `/v1/agents/:id` | No | Get agent details |
-| POST | `/v1/agents` | Yes | Register an agent |
-| PUT | `/v1/agents/:id` | Yes | Update an agent |
-| DELETE | `/v1/agents/:id` | Yes | Remove an agent |
-| POST | `/v1/agents/:id/verify` | Yes | Start domain verification |
-| POST | `/v1/agents/:id/verify/confirm` | Yes | Confirm domain verification |
-| POST | `/v1/agents/:id/ping` | Yes | Health check an agent |
-| POST | `/v1/keys` | Admin | Create API key |
-| GET | `/v1/stats` | No | Registry statistics |
-
-## Tech Stack
-
-- **Runtime:** Node.js + TypeScript
-- **Framework:** Hono
-- **Database:** SQLite (via better-sqlite3 + Drizzle ORM)
-- **Search:** SQLite FTS5
-- **Validation:** Zod
-
-## Configuration
-
-| Env Var | Default | Description |
-|---------|---------|-------------|
-| `PORT` | `3340` | Server port |
-| `HOST` | `0.0.0.0` | Bind address |
-| `DATABASE_URL` | `./agora.db` | SQLite database path |
-| `ADMIN_KEY` | (none) | Admin key for key creation (open if unset) |
-
-## Web UI
-
-Visit the root URL of any Agora instance to browse and search agents with a visual interface.
+It updates automatically from "registered" → "verified" once your DNS TXT clears.
 
 ## TypeScript SDK
 
@@ -137,32 +128,76 @@ npm install @sovont/agora
 ```ts
 import { Agora } from '@sovont/agora';
 
-const agora = new Agora(); // uses hosted instance by default
+const agora = new Agora();                       // anonymous reads
+const auth = new Agora({ apiKey: 'agora_…' });   // authenticated writes
 
-// Search agents (no auth needed)
 const results = await agora.search({ q: 'invoice parsing' });
+const tooling = await agora.search({ tool: 'send_email' });
+const agent = await agora.get(id);
 
-// Register (needs API key)
-const authed = new Agora({ apiKey: 'your-key' });
-await authed.register({ name: 'My Agent', description: '...', url: 'https://...' });
+await auth.register({ name: 'My Agent', description: '…', url: 'https://…' });
+const { instructions } = await auth.verify(agent.id, 'acme.com');
+console.log(`Add TXT record: ${instructions.record} = ${instructions.value}`);
+await auth.verifyConfirm(agent.id);
 
-// Import A2A Agent Card
-await authed.importA2A('https://example.com/.well-known/agent.json');
+const badge = auth.badgeUrl(agent.id);  // /v1/badge/<id>.svg
 ```
 
-See [sdk/README.md](sdk/README.md) for full documentation.
+See [sdk/README.md](sdk/README.md) for full docs.
+
+## Tech Stack
+
+- **Runtime:** Node.js + TypeScript
+- **Framework:** Hono (lightweight, edge-ready)
+- **Database:** SQLite (better-sqlite3 + Drizzle ORM) — single-file, scales to 100k+ agents
+- **Search:** SQLite FTS5 with safe query escaping + BM25-style ranking
+- **Validation:** Zod
+- **Tests:** Vitest — 50+ endpoint tests covering CRUD, auth, search, verification, health, import, SSR pages
+
+## Configuration
+
+| Env Var | Default | Description |
+|---------|---------|-------------|
+| `PORT` | `3340` | Server port |
+| `HOST` | `0.0.0.0` | Bind address |
+| `DATABASE_URL` | `./agora.db` | SQLite database path (use `:memory:` for tests) |
+| `ADMIN_KEY` | (unset) | Required to mint API keys via `POST /v1/keys` |
+| `RATE_LIMIT` | `60` | Requests/minute per IP for `/v1/*` (set `0` to disable) |
+
+## Web UI
+
+Visit the root URL of any Agora instance. Pages are server-rendered with crawlable agent URLs (`/agents/:id`), Open Graph cards, and JSON-LD `SoftwareApplication` markup — so agents are linkable, shareable, and discoverable by other agents that index the web.
+
+## Operations
+
+Agora runs two background loops:
+
+- **Health sweep** every hour: probes each registered agent's URL (HEAD, falls back to GET). After 24 consecutive failures, an agent is moved to `inactive`. One successful ping returns it to `active`.
+- **Re-verification** every 24h: re-checks every previously-verified agent's TXT record. Verification drops automatically if the record disappears.
+
+Both can also be triggered on demand: `POST /v1/health/check` and `POST /v1/health/reverify` (admin auth).
 
 ## Roadmap
 
-- [x] ~~TypeScript SDK~~
-- [x] ~~A2A Agent Card auto-import~~
-- [x] ~~Web UI for browsing~~
-- [x] ~~Categories endpoint~~
-- [ ] Agent health monitoring (periodic pings)
+- [x] Agent CRUD + full-text search with safe FTS escaping
+- [x] DNS-TXT domain verification bound to the agent URL host
+- [x] Periodic re-verification + auto-revocation on stale records
+- [x] Health sweep with HEAD/GET fallback + auto-deactivation
+- [x] A2A Agent Card import (idempotent)
+- [x] MCP tool manifest fetching + indexed search (`?tool=…`)
+- [x] TypeScript SDK with `badgeUrl` helper
+- [x] Server-rendered agent pages (OG + JSON-LD) — addressable, crawlable
+- [x] Verification + health badge SVGs
+- [x] OpenAPI 3.1 spec + Swagger UI at `/v1/docs`
+- [x] `.well-known/agora` discovery endpoint
+- [x] Rate limiting
 - [ ] Federation (multi-instance sync)
-- [ ] DID-based agent identity
-- [ ] Trust scoring
-- [ ] MCP server discovery
+- [ ] Cryptographic agent identity (DID / signed cards)
+- [ ] Trust scoring (uptime + verification + curation signals)
+- [ ] Postgres backend for federation/scale
+- [ ] CLI (`npx @sovont/agora …`)
+- [ ] Moderation / takedown surface
+- [ ] Slug-based handles (`@org/agent`)
 
 ## License
 

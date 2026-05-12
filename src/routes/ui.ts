@@ -1,406 +1,514 @@
 import { Hono } from "hono";
-import { html } from "hono/html";
+import { html, raw } from "hono/html";
+import { getAgent, searchAgents, getStats } from "../services/agents.js";
 
 const app = new Hono();
 
-const page = (content: string) => html`<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Agora — Agent Registry & Discovery</title>
-  <meta name="description" content="Open agent registry and discovery service. DNS for AI agents.">
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    
-    :root {
-      --bg: #0a0a0b;
-      --surface: #141416;
-      --surface-2: #1c1c20;
-      --border: #2a2a30;
-      --text: #e4e4e7;
-      --text-muted: #8b8b94;
-      --accent: #6366f1;
-      --accent-dim: #4f46e5;
-      --green: #22c55e;
-      --green-dim: rgba(34, 197, 94, 0.12);
-      --blue: #3b82f6;
-      --blue-dim: rgba(59, 130, 246, 0.12);
-      --orange: #f59e0b;
-      --orange-dim: rgba(245, 158, 11, 0.12);
-      --radius: 8px;
-      --radius-lg: 12px;
-    }
-    
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      line-height: 1.6;
-      min-height: 100vh;
-    }
+const SITE_NAME = "Agora";
+const SITE_TAGLINE = "Discover AI agents";
+const DEFAULT_DESC =
+  "The open registry for AI agents. Search by capability, protocol, or category. Built for the A2A and MCP ecosystem.";
 
-    a { color: var(--accent); text-decoration: none; }
-    a:hover { text-decoration: underline; }
+function siteUrl(c: any, path = ""): string {
+  const proto =
+    c.req.header("x-forwarded-proto") ||
+    (c.req.url.startsWith("https") ? "https" : "http");
+  const host = c.req.header("x-forwarded-host") || c.req.header("host") || "agora";
+  return `${proto}://${host}${path}`;
+}
 
-    .container { max-width: 960px; margin: 0 auto; padding: 0 20px; }
+function esc(s: any): string {
+  if (s == null) return "";
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 
-    /* Header */
-    header {
-      border-bottom: 1px solid var(--border);
-      padding: 20px 0;
-    }
-    .header-inner {
-      display: flex; align-items: center; justify-content: space-between;
-    }
-    .logo {
-      font-size: 1.5rem; font-weight: 700; color: var(--text);
-      display: flex; align-items: center; gap: 10px;
-    }
-    .logo-icon { font-size: 1.8rem; }
-    .header-links { display: flex; gap: 20px; font-size: 0.875rem; }
-    .header-links a { color: var(--text-muted); }
-    .header-links a:hover { color: var(--text); text-decoration: none; }
+const baseStyles = `
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #0a0a0b; --surface: #141416; --surface-2: #1c1c20; --border: #2a2a30;
+  --text: #e4e4e7; --text-muted: #8b8b94;
+  --accent: #6366f1; --accent-dim: #4f46e5;
+  --green: #22c55e; --green-dim: rgba(34,197,94,0.12);
+  --blue: #3b82f6; --blue-dim: rgba(59,130,246,0.12);
+  --orange: #f59e0b; --orange-dim: rgba(245,158,11,0.12);
+  --red: #ef4444;
+  --radius: 8px; --radius-lg: 12px;
+}
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  background: var(--bg); color: var(--text);
+  line-height: 1.6; min-height: 100vh;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.container { max-width: 1040px; margin: 0 auto; padding: 0 20px; }
+header { border-bottom: 1px solid var(--border); padding: 18px 0; position: sticky; top: 0; background: rgba(10,10,11,0.92); backdrop-filter: blur(10px); z-index: 10; }
+.header-inner { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.logo { font-size: 1.35rem; font-weight: 700; color: var(--text); display: flex; align-items: center; gap: 10px; }
+.logo-icon { font-size: 1.6rem; }
+.header-links { display: flex; gap: 18px; font-size: 0.875rem; }
+.header-links a { color: var(--text-muted); }
+.header-links a:hover { color: var(--text); text-decoration: none; }
+.tag { font-size: 0.72rem; padding: 3px 10px; border-radius: 12px; background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border); }
+.protocol-badge { font-size: 0.72rem; padding: 3px 10px; border-radius: 12px; font-weight: 600; letter-spacing: 0.02em; }
+.protocol-mcp { background: var(--blue-dim); color: var(--blue); }
+.protocol-a2a { background: var(--orange-dim); color: var(--orange); }
+.verified-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 0.72rem; color: var(--green); background: var(--green-dim); padding: 3px 10px; border-radius: 12px; font-weight: 500; }
+.health-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; vertical-align: middle; margin-right: 4px; }
+.health-healthy { background: var(--green); }
+.health-reachable { background: var(--blue); }
+.health-unhealthy { background: var(--orange); }
+.health-unreachable { background: var(--red); }
+.health-unknown { background: var(--text-muted); }
+footer { border-top: 1px solid var(--border); margin-top: 60px; padding: 24px 0; text-align: center; font-size: 0.8rem; color: var(--text-muted); }
+footer a { color: var(--text-muted); }
+footer a:hover { color: var(--text); }
+`;
 
-    /* Hero */
-    .hero {
-      text-align: center;
-      padding: 60px 0 40px;
-    }
-    .hero h1 {
-      font-size: 2.5rem; font-weight: 800; letter-spacing: -0.03em;
-      margin-bottom: 12px;
-    }
-    .hero h1 span { color: var(--accent); }
-    .hero p {
-      font-size: 1.1rem; color: var(--text-muted); max-width: 560px; margin: 0 auto 32px;
-    }
+const indexStyles = `
+.hero { text-align: center; padding: 60px 0 28px; }
+.hero h1 { font-size: 2.5rem; font-weight: 800; letter-spacing: -0.03em; margin-bottom: 12px; }
+.hero h1 span { color: var(--accent); }
+.hero p { font-size: 1.05rem; color: var(--text-muted); max-width: 600px; margin: 0 auto 24px; }
+.stats-bar { display: flex; justify-content: center; gap: 32px; margin-bottom: 32px; font-size: 0.875rem; flex-wrap: wrap; }
+.stat { text-align: center; }
+.stat-num { font-size: 1.5rem; font-weight: 700; color: var(--text); }
+.stat-label { color: var(--text-muted); margin-top: 2px; }
+.search-box { position: relative; max-width: 640px; margin: 0 auto 18px; }
+.search-box input { width: 100%; padding: 14px 20px 14px 48px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); color: var(--text); font-size: 1rem; outline: none; transition: border-color 0.2s; }
+.search-box input:focus { border-color: var(--accent); }
+.search-icon { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: var(--text-muted); font-size: 1.1rem; pointer-events: none; }
+.filters { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-bottom: 28px; }
+.filter-btn { padding: 6px 14px; border-radius: 20px; font-size: 0.8rem; background: var(--surface); border: 1px solid var(--border); color: var(--text-muted); cursor: pointer; transition: all 0.18s; text-decoration: none; }
+.filter-btn:hover, .filter-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(99,102,241,0.08); text-decoration: none; }
+.agents-grid { display: flex; flex-direction: column; gap: 12px; }
+.agent-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px 24px; transition: border-color 0.18s; display: block; color: inherit; }
+.agent-card:hover { border-color: var(--accent-dim); text-decoration: none; }
+.agent-header { display: flex; align-items: start; justify-content: space-between; margin-bottom: 8px; gap: 12px; }
+.agent-name { font-size: 1.1rem; font-weight: 600; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.agent-provider { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 8px; }
+.agent-desc { font-size: 0.92rem; color: var(--text-muted); line-height: 1.55; margin-bottom: 12px; }
+.agent-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.empty { text-align: center; padding: 60px 20px; color: var(--text-muted); }
+.empty-icon { font-size: 3rem; margin-bottom: 16px; }
+.pagination { display: flex; justify-content: center; gap: 8px; margin-top: 32px; }
+.pagination a { padding: 6px 14px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); color: var(--text-muted); font-size: 0.85rem; }
+.pagination a:hover { color: var(--text); text-decoration: none; border-color: var(--accent-dim); }
+.pagination .current { color: var(--text); }
+@media (max-width: 600px) {
+  .hero h1 { font-size: 1.8rem; }
+  .stats-bar { gap: 20px; }
+  .agent-card { padding: 16px; }
+  .header-links { gap: 12px; }
+}
+`;
 
-    /* Stats bar */
-    .stats-bar {
-      display: flex; justify-content: center; gap: 40px;
-      margin-bottom: 40px; font-size: 0.875rem;
-    }
-    .stat { text-align: center; }
-    .stat-num { font-size: 1.5rem; font-weight: 700; color: var(--text); }
-    .stat-label { color: var(--text-muted); margin-top: 2px; }
+const agentStyles = `
+.agent-page { padding: 40px 0; }
+.breadcrumb { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 16px; }
+.breadcrumb a { color: var(--text-muted); }
+.title-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.title-row h1 { font-size: 1.8rem; letter-spacing: -0.02em; }
+.title-row .small { font-size: 0.8rem; color: var(--text-muted); }
+.provider { color: var(--text-muted); font-size: 0.95rem; margin-bottom: 18px; }
+.desc { font-size: 1.05rem; color: var(--text); line-height: 1.6; margin-bottom: 28px; max-width: 720px; }
+.grid { display: grid; grid-template-columns: 2fr 1fr; gap: 32px; }
+.section { margin-bottom: 28px; }
+.section h3 { font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; font-weight: 600; }
+.kv { display: grid; grid-template-columns: 130px 1fr; gap: 6px 12px; font-size: 0.9rem; }
+.kv dt { color: var(--text-muted); }
+.kv dd { color: var(--text); word-break: break-word; }
+.cap-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.cap-list li { padding: 12px 14px; background: var(--surface-2); border-radius: var(--radius); border: 1px solid var(--border); }
+.cap-name { font-weight: 600; font-size: 0.95rem; }
+.cap-desc { color: var(--text-muted); font-size: 0.85rem; margin-top: 4px; }
+.tag-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.sidebar { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; position: sticky; top: 90px; align-self: start; }
+.sidebar .row { padding: 8px 0; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; font-size: 0.85rem; gap: 8px; }
+.sidebar .row:last-child { border-bottom: none; }
+.sidebar .label { color: var(--text-muted); }
+.sidebar .value { color: var(--text); text-align: right; word-break: break-word; }
+.embed { margin-top: 16px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.78rem; color: var(--text-muted); overflow-x: auto; white-space: nowrap; }
+.button { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; background: var(--accent); color: white; border-radius: 8px; font-size: 0.85rem; font-weight: 500; }
+.button:hover { background: var(--accent-dim); text-decoration: none; }
+@media (max-width: 760px) {
+  .grid { grid-template-columns: 1fr; }
+  .sidebar { position: static; }
+}
+`;
 
-    /* Search */
-    .search-box {
-      position: relative; max-width: 600px; margin: 0 auto 16px;
-    }
-    .search-box input {
-      width: 100%; padding: 14px 20px 14px 48px;
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: var(--radius-lg); color: var(--text);
-      font-size: 1rem; outline: none; transition: border-color 0.2s;
-    }
-    .search-box input:focus { border-color: var(--accent); }
-    .search-box input::placeholder { color: var(--text-muted); }
-    .search-icon {
-      position: absolute; left: 16px; top: 50%; transform: translateY(-50%);
-      color: var(--text-muted); font-size: 1.1rem; pointer-events: none;
-    }
-
-    /* Filters */
-    .filters {
-      display: flex; flex-wrap: wrap; justify-content: center; gap: 8px;
-      margin-bottom: 40px;
-    }
-    .filter-btn {
-      padding: 6px 14px; border-radius: 20px; font-size: 0.8rem;
-      background: var(--surface); border: 1px solid var(--border);
-      color: var(--text-muted); cursor: pointer; transition: all 0.2s;
-    }
-    .filter-btn:hover, .filter-btn.active {
-      border-color: var(--accent); color: var(--accent); background: rgba(99, 102, 241, 0.08);
-    }
-
-    /* Agent cards */
-    .agents-grid { display: flex; flex-direction: column; gap: 12px; }
-    
-    .agent-card {
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: var(--radius-lg); padding: 20px 24px;
-      transition: border-color 0.2s; cursor: pointer;
-    }
-    .agent-card:hover { border-color: var(--accent-dim); }
-
-    .agent-header { display: flex; align-items: start; justify-content: space-between; margin-bottom: 8px; }
-    .agent-name {
-      font-size: 1.1rem; font-weight: 600;
-      display: flex; align-items: center; gap: 8px;
-    }
-    .verified-badge {
-      display: inline-flex; align-items: center; gap: 3px;
-      font-size: 0.7rem; color: var(--green); background: var(--green-dim);
-      padding: 2px 8px; border-radius: 10px; font-weight: 500;
-    }
-    .agent-provider {
-      font-size: 0.8rem; color: var(--text-muted); margin-bottom: 8px;
-    }
-    .agent-desc {
-      font-size: 0.9rem; color: var(--text-muted); line-height: 1.5;
-      margin-bottom: 12px;
-    }
-    .agent-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-    .tag {
-      font-size: 0.72rem; padding: 3px 10px; border-radius: 12px;
-      background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border);
-    }
-    .protocol-badge {
-      font-size: 0.72rem; padding: 3px 10px; border-radius: 12px;
-      font-weight: 600; letter-spacing: 0.02em;
-    }
-    .protocol-mcp { background: var(--blue-dim); color: var(--blue); }
-    .protocol-a2a { background: var(--orange-dim); color: var(--orange); }
-
-    /* Agent detail modal */
-    .modal-overlay {
-      display: none; position: fixed; inset: 0;
-      background: rgba(0,0,0,0.7); z-index: 100;
-      align-items: center; justify-content: center; padding: 20px;
-    }
-    .modal-overlay.active { display: flex; }
-    .modal {
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: var(--radius-lg); max-width: 640px; width: 100%;
-      max-height: 80vh; overflow-y: auto; padding: 32px;
-    }
-    .modal-close {
-      float: right; background: none; border: none; color: var(--text-muted);
-      font-size: 1.5rem; cursor: pointer; line-height: 1;
-    }
-    .modal-close:hover { color: var(--text); }
-    .modal h2 { font-size: 1.3rem; margin-bottom: 4px; }
-    .modal-provider { color: var(--text-muted); font-size: 0.85rem; margin-bottom: 16px; }
-    .modal-desc { margin-bottom: 20px; color: var(--text-muted); font-size: 0.95rem; line-height: 1.6; }
-    .modal-section { margin-bottom: 16px; }
-    .modal-section h3 { font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
-    .modal-url { word-break: break-all; }
-    .cap-list { list-style: none; }
-    .cap-list li {
-      padding: 8px 12px; background: var(--surface-2); border-radius: var(--radius);
-      margin-bottom: 6px; font-size: 0.875rem;
-    }
-    .cap-name { font-weight: 600; }
-    .cap-desc { color: var(--text-muted); font-size: 0.8rem; }
-
-    /* Empty state */
-    .empty { text-align: center; padding: 60px 20px; color: var(--text-muted); }
-    .empty-icon { font-size: 3rem; margin-bottom: 16px; }
-
-    /* Footer */
-    footer {
-      border-top: 1px solid var(--border); margin-top: 60px;
-      padding: 24px 0; text-align: center;
-      font-size: 0.8rem; color: var(--text-muted);
-    }
-    footer a { color: var(--text-muted); }
-    footer a:hover { color: var(--text); }
-
-    /* Loading */
-    .loading { text-align: center; padding: 40px; color: var(--text-muted); }
-
-    @media (max-width: 600px) {
-      .hero h1 { font-size: 1.8rem; }
-      .stats-bar { gap: 24px; }
-      .agent-card { padding: 16px; }
-      .header-links { gap: 12px; }
-    }
-  </style>
-</head>
-<body>
-  <header>
+function headerBlock() {
+  return html`<header>
     <div class="container header-inner">
-      <div class="logo"><span class="logo-icon">🏛️</span> Agora</div>
+      <a class="logo" href="/" style="color:inherit;text-decoration:none"><span class="logo-icon">${raw("&#x1f3db;")}</span> Agora</a>
       <div class="header-links">
-        <a href="/v1/agents" target="_blank">API</a>
+        <a href="/v1/agents">API</a>
+        <a href="/v1/docs">Docs</a>
         <a href="https://github.com/sovontai/agora" target="_blank">GitHub</a>
-        <a href="https://sovont.com/blog/introducing-agora-dns-for-ai-agents" target="_blank">Blog</a>
-        <a href="https://sovont.com" target="_blank">Sovont</a>
       </div>
     </div>
-  </header>
+  </header>`;
+}
 
-  <main class="container">
-    <div class="hero">
-      <h1>Discover <span>AI Agents</span></h1>
-      <p>The open registry for AI agents. Search by capability, protocol, or category. Built for the A2A and MCP ecosystem.</p>
+function footerBlock() {
+  return html`<footer>
+    <div class="container">
+      Agora v0.2.0 — <a href="/v1/openapi.json">OpenAPI</a> — <a href="/.well-known/agora">.well-known</a> — <a href="https://github.com/sovontai/agora">Apache 2.0</a>
     </div>
+  </footer>`;
+}
 
-    <div class="stats-bar" id="stats">
-      <div class="stat"><div class="stat-num" id="stat-total">—</div><div class="stat-label">Agents</div></div>
-      <div class="stat"><div class="stat-num" id="stat-mcp">—</div><div class="stat-label">MCP</div></div>
-      <div class="stat"><div class="stat-num" id="stat-a2a">—</div><div class="stat-label">A2A</div></div>
-      <div class="stat"><div class="stat-num" id="stat-verified">—</div><div class="stat-label">Verified</div></div>
-    </div>
+function metaBlock(opts: {
+  title: string;
+  description: string;
+  url: string;
+  image?: string;
+  jsonLd?: object;
+}) {
+  return html`<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${opts.title}</title>
+<meta name="description" content="${opts.description}">
+<link rel="canonical" href="${opts.url}">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Agora">
+<meta property="og:title" content="${opts.title}">
+<meta property="og:description" content="${opts.description}">
+<meta property="og:url" content="${opts.url}">
+${opts.image ? html`<meta property="og:image" content="${opts.image}">` : ""}
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="${opts.title}">
+<meta name="twitter:description" content="${opts.description}">
+${
+  opts.jsonLd
+    ? html`<script type="application/ld+json">${raw(JSON.stringify(opts.jsonLd))}</script>`
+    : ""
+}`;
+}
 
-    <div class="search-box">
-      <span class="search-icon">⌕</span>
-      <input type="text" id="search" placeholder="Search agents by name, capability, or description..." autofocus />
-    </div>
+// ── Index page ──────────────────────────────────────────────────────────────
 
-    <div class="filters" id="filters"></div>
+app.get("/", async (c) => {
+  const url = new URL(c.req.url);
+  const q = url.searchParams.get("q") || "";
+  const category = url.searchParams.get("category") || "";
+  const protocol = (url.searchParams.get("protocol") as "a2a" | "mcp" | null) || null;
+  const verifiedParam = url.searchParams.get("verified");
+  const verified =
+    verifiedParam === "true" ? true : verifiedParam === "false" ? false : undefined;
+  const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10) || 1);
+  const limit = 24;
+  const offset = (page - 1) * limit;
 
-    <div class="agents-grid" id="agents">
-      <div class="loading">Loading agents...</div>
-    </div>
-  </main>
+  const [stats, list] = await Promise.all([
+    getStats(),
+    searchAgents({
+      q: q || undefined,
+      category: category || undefined,
+      protocol: protocol || undefined,
+      verified,
+      limit,
+      offset,
+    } as any),
+  ]);
 
-  <div class="modal-overlay" id="modal-overlay">
-    <div class="modal" id="modal"></div>
+  // Pull category facets from a separate query so they don't depend on the page.
+  const facets = await searchAgents({ limit: 100, offset: 0 } as any);
+  const cats = new Set<string>();
+  for (const a of facets.agents) (a.categories || []).forEach((x: string) => cats.add(x));
+  const allCats = [...cats].sort();
+
+  const totalPages = Math.max(1, Math.ceil(list.total / limit));
+  const currentUrl = siteUrl(c, "/");
+
+  return c.html(html`<!DOCTYPE html>
+<html lang="en">
+<head>
+${metaBlock({
+  title: `${SITE_NAME} — ${SITE_TAGLINE}`,
+  description: DEFAULT_DESC,
+  url: currentUrl,
+  jsonLd: {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: SITE_NAME,
+    url: currentUrl,
+    description: DEFAULT_DESC,
+    potentialAction: {
+      "@type": "SearchAction",
+      target: `${currentUrl}?q={search_term_string}`,
+      "query-input": "required name=search_term_string",
+    },
+  },
+})}
+<style>${raw(baseStyles)}${raw(indexStyles)}</style>
+</head>
+<body>
+${headerBlock()}
+<main class="container">
+  <section class="hero">
+    <h1>Discover <span>AI agents</span></h1>
+    <p>${DEFAULT_DESC}</p>
+  </section>
+
+  <div class="stats-bar">
+    <div class="stat"><div class="stat-num">${stats.totalAgents}</div><div class="stat-label">Agents</div></div>
+    <div class="stat"><div class="stat-num">${stats.mcpAgents}</div><div class="stat-label">MCP</div></div>
+    <div class="stat"><div class="stat-num">${stats.a2aAgents}</div><div class="stat-label">A2A</div></div>
+    <div class="stat"><div class="stat-num">${stats.verifiedAgents}</div><div class="stat-label">Verified</div></div>
+    <div class="stat"><div class="stat-num">${stats.healthyAgents}</div><div class="stat-label">Healthy</div></div>
   </div>
 
-  <footer>
-    <div class="container">
-      Agora v0.1.0 — Open Agent Registry & Discovery — 
-      <a href="https://github.com/sovontai/agora">Apache 2.0</a> — 
-      Built by <a href="https://sovont.com">Sovont</a>
-    </div>
-  </footer>
+  <form class="search-box" method="get" action="/">
+    <span class="search-icon">${raw("&#x2315;")}</span>
+    <input type="text" name="q" value="${esc(q)}" placeholder="Search by name, capability, tool, or description…" autofocus />
+    ${category ? html`<input type="hidden" name="category" value="${esc(category)}">` : ""}
+    ${protocol ? html`<input type="hidden" name="protocol" value="${esc(protocol)}">` : ""}
+    ${verified === true ? html`<input type="hidden" name="verified" value="true">` : ""}
+  </form>
 
-  <script>
-    const API = '/v1';
-    let allAgents = [];
-    let activeCategory = null;
+  <nav class="filters" aria-label="Filters">
+    ${filterChip("All", "/", !category && !protocol && verified === undefined)}
+    ${filterChip("Verified", "/?verified=true", verified === true)}
+    ${filterChip("A2A", "/?protocol=a2a", protocol === "a2a")}
+    ${filterChip("MCP", "/?protocol=mcp", protocol === "mcp")}
+    ${allCats.map((c0) =>
+      filterChip(c0, `/?category=${encodeURIComponent(c0)}`, category === c0)
+    )}
+  </nav>
 
-    async function init() {
-      const [statsRes, agentsRes] = await Promise.all([
-        fetch(API + '/stats').then(r => r.json()),
-        fetch(API + '/agents?limit=100').then(r => r.json())
-      ]);
-
-      document.getElementById('stat-total').textContent = statsRes.totalAgents;
-      document.getElementById('stat-mcp').textContent = statsRes.mcpAgents;
-      document.getElementById('stat-a2a').textContent = statsRes.a2aAgents;
-      document.getElementById('stat-verified').textContent = statsRes.verifiedAgents;
-
-      allAgents = agentsRes.agents || [];
-      
-      // Extract categories
-      const cats = new Set();
-      allAgents.forEach(a => (a.categories || []).forEach(c => cats.add(c)));
-      renderFilters([...cats].sort());
-      renderAgents(allAgents);
+  <section class="agents-grid" aria-label="Agents">
+    ${
+      list.agents.length === 0
+        ? html`<div class="empty"><div class="empty-icon">${raw("&#x1f50d;")}</div>No agents match. Try a different search.</div>`
+        : list.agents.map((a: any) => agentCardHtml(a))
     }
+  </section>
 
-    function renderFilters(categories) {
-      const el = document.getElementById('filters');
-      el.innerHTML = '<button class="filter-btn active" data-cat="">All</button>' +
-        categories.map(c => '<button class="filter-btn" data-cat="' + c + '">' + c + '</button>').join('');
-      
-      el.addEventListener('click', (e) => {
-        if (!e.target.matches('.filter-btn')) return;
-        el.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-        e.target.classList.add('active');
-        activeCategory = e.target.dataset.cat || null;
-        filterAndRender();
-      });
-    }
-
-    function filterAndRender() {
-      const q = document.getElementById('search').value.toLowerCase().trim();
-      let filtered = allAgents;
-
-      if (q) {
-        filtered = filtered.filter(a =>
-          a.name.toLowerCase().includes(q) ||
-          a.description.toLowerCase().includes(q) ||
-          (a.tags || []).some(t => t.toLowerCase().includes(q)) ||
-          (a.categories || []).some(c => c.toLowerCase().includes(q)) ||
-          (a.capabilities || []).some(c => c.name.toLowerCase().includes(q))
-        );
-      }
-
-      if (activeCategory) {
-        filtered = filtered.filter(a => (a.categories || []).includes(activeCategory));
-      }
-
-      renderAgents(filtered);
-    }
-
-    function renderAgents(agents) {
-      const el = document.getElementById('agents');
-      if (!agents.length) {
-        el.innerHTML = '<div class="empty"><div class="empty-icon">🔍</div>No agents found. Try a different search.</div>';
-        return;
-      }
-
-      el.innerHTML = agents.map(a => {
-        const protocols = [];
-        if (a.protocols?.mcp) protocols.push('<span class="protocol-badge protocol-mcp">MCP</span>');
-        if (a.protocols?.a2a) protocols.push('<span class="protocol-badge protocol-a2a">A2A</span>');
-        
-        const tags = (a.tags || []).slice(0, 4).map(t => '<span class="tag">' + t + '</span>').join('');
-        const verified = a.verification?.verified ? '<span class="verified-badge">✓ Verified</span>' : '';
-        const provider = a.provider?.organization ? '<div class="agent-provider">by ' + a.provider.organization + '</div>' : '';
-        
-        return '<div class="agent-card" data-id="' + a.id + '">' +
-          '<div class="agent-header"><div class="agent-name">' + esc(a.name) + ' ' + verified + '</div></div>' +
-          provider +
-          '<div class="agent-desc">' + esc(a.description) + '</div>' +
-          '<div class="agent-meta">' + protocols.join('') + tags + '</div>' +
-          '</div>';
-      }).join('');
-
-      el.querySelectorAll('.agent-card').forEach(card => {
-        card.addEventListener('click', () => showAgent(card.dataset.id));
-      });
-    }
-
-    async function showAgent(id) {
-      const a = allAgents.find(x => x.id === id);
-      if (!a) return;
-
-      const protocols = [];
-      if (a.protocols?.mcp) protocols.push('<span class="protocol-badge protocol-mcp">MCP</span>');
-      if (a.protocols?.a2a) protocols.push('<span class="protocol-badge protocol-a2a">A2A</span>');
-
-      const caps = (a.capabilities || []).map(c =>
-        '<li><span class="cap-name">' + esc(c.name) + '</span>' +
-        (c.description ? '<div class="cap-desc">' + esc(c.description) + '</div>' : '') + '</li>'
-      ).join('');
-
-      const tags = (a.tags || []).map(t => '<span class="tag">' + t + '</span>').join(' ');
-      const verified = a.verification?.verified
-        ? '<span class="verified-badge">✓ Verified — ' + a.verification.domain + '</span>'
-        : '<span style="color:var(--text-muted);font-size:0.8rem">Not verified</span>';
-
-      document.getElementById('modal').innerHTML =
-        '<button class="modal-close" id="modal-close">&times;</button>' +
-        '<h2>' + esc(a.name) + ' ' + protocols.join(' ') + '</h2>' +
-        (a.provider?.organization ? '<div class="modal-provider">by ' + esc(a.provider.organization) + '</div>' : '') +
-        '<div class="modal-desc">' + esc(a.description) + '</div>' +
-        '<div class="modal-section"><h3>URL</h3><a class="modal-url" href="' + esc(a.url) + '" target="_blank">' + esc(a.url) + '</a></div>' +
-        (a.version ? '<div class="modal-section"><h3>Version</h3>' + esc(a.version) + '</div>' : '') +
-        '<div class="modal-section"><h3>Verification</h3>' + verified + '</div>' +
-        (caps ? '<div class="modal-section"><h3>Capabilities</h3><ul class="cap-list">' + caps + '</ul></div>' : '') +
-        '<div class="modal-section"><h3>Tags</h3><div class="agent-meta">' + tags + '</div></div>' +
-        '<div class="modal-section" style="margin-top:20px;font-size:0.75rem;color:var(--text-muted)">Registered: ' + new Date(a.registeredAt).toLocaleDateString() + '</div>';
-
-      const overlay = document.getElementById('modal-overlay');
-      overlay.classList.add('active');
-      document.getElementById('modal-close').addEventListener('click', () => overlay.classList.remove('active'));
-      overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.classList.remove('active'); });
-    }
-
-    function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
-
-    document.getElementById('search').addEventListener('input', debounce(filterAndRender, 200));
-    function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
-
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') document.getElementById('modal-overlay').classList.remove('active');
-    });
-
-    init();
-  </script>
+  ${
+    totalPages > 1
+      ? html`<div class="pagination">
+          ${page > 1
+            ? html`<a href="${paginateHref(url, page - 1)}">${raw("&larr;")} Prev</a>`
+            : ""}
+          <span class="current">Page ${page} of ${totalPages}</span>
+          ${page < totalPages
+            ? html`<a href="${paginateHref(url, page + 1)}">Next ${raw("&rarr;")}</a>`
+            : ""}
+        </div>`
+      : ""
+  }
+</main>
+${footerBlock()}
 </body>
-</html>`;
+</html>`);
+});
 
-app.get("/", (c) => {
-  return c.html(page(""));
+function filterChip(label: string, href: string, active: boolean) {
+  return html`<a class="filter-btn ${active ? "active" : ""}" href="${href}">${esc(label)}</a>`;
+}
+
+function paginateHref(url: URL, page: number): string {
+  const u = new URL(url.toString());
+  u.searchParams.set("page", String(page));
+  return `${u.pathname}?${u.searchParams.toString()}`;
+}
+
+function agentCardHtml(a: any) {
+  const protocols: any[] = [];
+  if (a.protocols?.mcp) protocols.push(html`<span class="protocol-badge protocol-mcp">MCP</span>`);
+  if (a.protocols?.a2a) protocols.push(html`<span class="protocol-badge protocol-a2a">A2A</span>`);
+  const verified = a.verification?.verified
+    ? html`<span class="verified-badge">${raw("&#x2713;")} Verified</span>`
+    : "";
+  const tags = (a.tags || []).slice(0, 4).map((t: string) => html`<span class="tag">${esc(t)}</span>`);
+  const provider = a.provider?.organization
+    ? html`<div class="agent-provider">by ${esc(a.provider.organization)}</div>`
+    : "";
+  return html`<a class="agent-card" href="/agents/${esc(a.id)}">
+    <div class="agent-header">
+      <div class="agent-name">${esc(a.name)} ${verified}</div>
+    </div>
+    ${provider}
+    <div class="agent-desc">${esc(a.description)}</div>
+    <div class="agent-meta">${protocols}${tags}</div>
+  </a>`;
+}
+
+// ── Individual agent page (SSR) ─────────────────────────────────────────────
+
+app.get("/agents/:id", async (c) => {
+  const id = c.req.param("id");
+  const agent = await getAgent(id);
+  if (!agent) {
+    c.status(404);
+    return c.html(html`<!doctype html><html><head><title>Agent not found — Agora</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1"><style>${raw(baseStyles)}</style></head>
+    <body>${headerBlock()}
+    <main class="container" style="text-align:center;padding:80px 20px;">
+      <h1 style="font-size:1.5rem;margin-bottom:12px;">Agent not found</h1>
+      <p style="color:var(--text-muted);">No agent with id <code>${esc(id)}</code> exists in this registry.</p>
+      <p style="margin-top:20px;"><a href="/">${raw("&larr;")} Back to all agents</a></p>
+    </main>${footerBlock()}</body></html>`);
+  }
+
+  const pageUrl = siteUrl(c, `/agents/${agent.id}`);
+  const badgeUrl = siteUrl(c, `/v1/badge/${agent.id}.svg`);
+  const desc = (agent.description || "").slice(0, 240);
+  const verifiedLabel = agent.verification.verified
+    ? `Verified for ${agent.verification.domain}`
+    : "Unverified";
+  const title = `${agent.name} — Agora`;
+  const healthClass = (() => {
+    const s = agent.health?.status || "";
+    if (s === "healthy") return "health-healthy";
+    if (s === "reachable") return "health-reachable";
+    if (s.startsWith("unhealthy")) return "health-unhealthy";
+    if (s.startsWith("unreachable")) return "health-unreachable";
+    return "health-unknown";
+  })();
+
+  const jsonLd: any = {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    name: agent.name,
+    description: agent.description,
+    url: pageUrl,
+    applicationCategory: "AI Agent",
+    operatingSystem: "Web",
+    sameAs: [agent.url],
+  };
+  if (agent.provider?.organization) {
+    jsonLd.author = { "@type": "Organization", name: agent.provider.organization };
+  }
+  if (agent.protocols?.a2a?.agentCardUrl) jsonLd.sameAs.push(agent.protocols.a2a.agentCardUrl);
+  if (agent.protocols?.mcp?.serverUrl) jsonLd.sameAs.push(agent.protocols.mcp.serverUrl);
+
+  const embed = `<a href="${pageUrl}"><img src="${badgeUrl}" alt="Listed on Agora"/></a>`;
+
+  return c.html(html`<!doctype html>
+<html lang="en">
+<head>
+${metaBlock({
+  title,
+  description: desc || DEFAULT_DESC,
+  url: pageUrl,
+  jsonLd,
+})}
+<style>${raw(baseStyles)}${raw(agentStyles)}</style>
+</head>
+<body>
+${headerBlock()}
+<main class="container agent-page">
+  <div class="breadcrumb"><a href="/">Agora</a> / Agents / ${esc(agent.name)}</div>
+  <div class="title-row">
+    <h1>${esc(agent.name)}</h1>
+    ${agent.protocols?.a2a ? html`<span class="protocol-badge protocol-a2a">A2A</span>` : ""}
+    ${agent.protocols?.mcp ? html`<span class="protocol-badge protocol-mcp">MCP</span>` : ""}
+    ${
+      agent.verification.verified
+        ? html`<span class="verified-badge">${raw("&#x2713;")} ${esc(verifiedLabel)}</span>`
+        : ""
+    }
+    ${agent.version ? html`<span class="small">v${esc(agent.version)}</span>` : ""}
+  </div>
+  ${
+    agent.provider?.organization
+      ? html`<div class="provider">by ${
+          agent.provider.url
+            ? html`<a href="${esc(agent.provider.url)}" target="_blank" rel="noopener">${esc(agent.provider.organization)}</a>`
+            : esc(agent.provider.organization)
+        }</div>`
+      : ""
+  }
+  <p class="desc">${esc(agent.description)}</p>
+
+  <div class="grid">
+    <div>
+      ${
+        agent.capabilities?.length
+          ? html`<section class="section">
+              <h3>Capabilities</h3>
+              <ul class="cap-list">
+                ${agent.capabilities.map(
+                  (cap: any) => html`<li>
+                    <div class="cap-name">${esc(cap.name)}</div>
+                    ${cap.description ? html`<div class="cap-desc">${esc(cap.description)}</div>` : ""}
+                  </li>`
+                )}
+              </ul>
+            </section>`
+          : ""
+      }
+      ${
+        agent.mcpTools?.length
+          ? html`<section class="section">
+              <h3>MCP tools (${agent.mcpTools.length})</h3>
+              <ul class="cap-list">
+                ${agent.mcpTools
+                  .slice(0, 30)
+                  .map(
+                    (t: any) => html`<li>
+                      <div class="cap-name">${esc(t.name)}</div>
+                      ${t.description ? html`<div class="cap-desc">${esc(t.description)}</div>` : ""}
+                    </li>`
+                  )}
+              </ul>
+            </section>`
+          : ""
+      }
+      ${
+        agent.tags?.length
+          ? html`<section class="section">
+              <h3>Tags</h3>
+              <div class="tag-list">${agent.tags.map((t: string) => html`<a class="tag" href="/?q=${encodeURIComponent(t)}">${esc(t)}</a>`)}</div>
+            </section>`
+          : ""
+      }
+      ${
+        agent.categories?.length
+          ? html`<section class="section">
+              <h3>Categories</h3>
+              <div class="tag-list">${agent.categories.map((cat: string) => html`<a class="tag" href="/?category=${encodeURIComponent(cat)}">${esc(cat)}</a>`)}</div>
+            </section>`
+          : ""
+      }
+    </div>
+
+    <aside class="sidebar">
+      <div class="row"><span class="label">URL</span><span class="value"><a href="${esc(agent.url)}" target="_blank" rel="noopener">${esc(agent.url)}</a></span></div>
+      <div class="row"><span class="label">Health</span><span class="value"><span class="health-dot ${healthClass}"></span>${esc(agent.health?.status || "unknown")}</span></div>
+      <div class="row"><span class="label">Status</span><span class="value">${esc(agent.status)}</span></div>
+      <div class="row"><span class="label">Registered</span><span class="value">${esc(new Date(agent.registeredAt).toISOString().slice(0, 10))}</span></div>
+      ${
+        agent.protocols?.a2a
+          ? html`<div class="row"><span class="label">A2A card</span><span class="value"><a href="${esc(agent.protocols.a2a.agentCardUrl)}" target="_blank" rel="noopener">JSON</a></span></div>`
+          : ""
+      }
+      ${
+        agent.protocols?.mcp
+          ? html`<div class="row"><span class="label">MCP server</span><span class="value"><a href="${esc(agent.protocols.mcp.serverUrl)}" target="_blank" rel="noopener">${esc(agent.protocols.mcp.serverUrl)}</a></span></div>`
+          : ""
+      }
+      <div class="section" style="margin-top:14px;">
+        <h3>Embed</h3>
+        <img alt="Agora badge" src="${badgeUrl}" />
+        <div class="embed">${esc(embed)}</div>
+      </div>
+      <div class="section" style="margin-top:14px;">
+        <a class="button" href="${esc(agent.url)}" target="_blank" rel="noopener">Visit agent ${raw("&rarr;")}</a>
+      </div>
+    </aside>
+  </div>
+</main>
+${footerBlock()}
+</body>
+</html>`);
 });
 
 export default app;

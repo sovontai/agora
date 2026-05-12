@@ -4,16 +4,17 @@ import { db } from "../db/index.js";
 import { apiKeys } from "../db/schema.js";
 import { hashKey } from "../middleware/auth.js";
 
-export async function createApiKey(name?: string) {
+export async function createApiKey(name?: string, isAdmin = false) {
   const raw = `agora_${randomBytes(24).toString("hex")}`;
   const id = uuidv4();
 
   await db.insert(apiKeys).values({
     id,
     keyHash: hashKey(raw),
-    name: name || null,
+    name: name ?? null,
+    isAdmin,
     createdAt: new Date().toISOString(),
   });
 
-  return { id, key: raw, name };
+  return { id, key: raw, name: name ?? null, isAdmin };
 }
