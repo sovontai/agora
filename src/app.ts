@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import agentRoutes from "./routes/agents.js";
+import claimRoutes from "./routes/claim.js";
 import keyRoutes from "./routes/keys.js";
 import statsRoutes from "./routes/stats.js";
 import categoryRoutes from "./routes/categories.js";
@@ -9,7 +10,9 @@ import importRoutes from "./routes/import.js";
 import healthRoutes from "./routes/health.js";
 import openapiRoutes from "./routes/openapi.js";
 import badgeRoutes from "./routes/badge.js";
+import ogRoutes from "./routes/og.js";
 import wellKnownRoutes from "./routes/well-known.js";
+import seoRoutes from "./routes/seo.js";
 import uiRoutes from "./routes/ui.js";
 import { handleError } from "./middleware/errors.js";
 import { rateLimit } from "./middleware/rate-limit.js";
@@ -25,6 +28,7 @@ app.use("/v1/*", rateLimit());
 
 // Web UI at root
 app.route("/", uiRoutes);
+app.route("/", seoRoutes);
 app.route("/.well-known", wellKnownRoutes);
 
 // Health check
@@ -34,7 +38,7 @@ app.get("/health", (c) => c.json({ status: "ok" }));
 app.get("/v1", (c) =>
   c.json({
     name: "Agora",
-    version: "0.2.0",
+    version: "0.3.0",
     description: "Open Agent Registry & Discovery — DNS for AI agents",
     endpoints: {
       agents: "/v1/agents",
@@ -51,6 +55,7 @@ app.get("/v1", (c) =>
 
 // API routes
 app.route("/v1/agents", agentRoutes);
+app.route("/v1/agents", claimRoutes);
 app.route("/v1/keys", keyRoutes);
 app.route("/v1/stats", statsRoutes);
 app.route("/v1/categories", categoryRoutes);
@@ -58,6 +63,7 @@ app.route("/v1/import", importRoutes);
 app.route("/v1/health", healthRoutes);
 app.route("/v1", openapiRoutes);
 app.route("/v1/badge", badgeRoutes);
+app.route("/v1/og", ogRoutes);
 
 // Error handling
 app.onError(handleError);
