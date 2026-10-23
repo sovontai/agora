@@ -6,14 +6,18 @@
  * inspect, and register agents from inside an AI conversation.
  *
  * Configuration via environment:
- *   AGORA_BASE_URL  - registry to talk to (default https://agora.sovont.com)
+ *   AGORA_BASE_URL  - registry to talk to (default http://localhost:3340, a local Agora server)
  *   AGORA_KEY       - API key, enables auth-gated tools (register, verify, ping)
  *
- * The server speaks stdio by default. Most clients run it via npx:
+ * The server speaks stdio. Build it (`npm run build`) and point your client at it:
  *
  *   {
  *     "mcpServers": {
- *       "agora": { "command": "npx", "args": ["-y", "@sovont/agora-mcp"] }
+ *       "agora": {
+ *         "command": "node",
+ *         "args": ["/path/to/agora/mcp/dist/index.js"],
+ *         "env": { "AGORA_BASE_URL": "http://localhost:3340" }
+ *       }
  *     }
  *   }
  */
@@ -22,7 +26,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-const BASE_URL = (process.env.AGORA_BASE_URL || "https://agora.sovont.com").replace(
+const BASE_URL = (process.env.AGORA_BASE_URL || "http://localhost:3340").replace(
   /\/$/,
   ""
 );
@@ -306,7 +310,7 @@ server.registerTool(
   {
     title: "Import an A2A agent card",
     description:
-      "Import an agent from its A2A `/.well-known/agent.json`. Idempotent — re-importing updates the existing entry.",
+      "Import an agent from its A2A Agent Card URL (usually `/.well-known/agent-card.json`). Idempotent — re-importing updates the existing entry.",
     inputSchema: { url: z.string().url() },
   },
   async ({ url }) => {

@@ -63,12 +63,17 @@ function stripExt(slug: string): string {
   return slug.endsWith(".svg") ? slug.slice(0, -4) : slug;
 }
 
+/** The host this instance is served from, shown in the card footer. */
+function hostFrom(c: any): string {
+  return c.req.header("x-forwarded-host") || c.req.header("host") || "";
+}
+
 /** Per-agent OG card. 1200x630. */
 app.get("/agents/:slug", async (c) => {
   const id = stripExt(c.req.param("slug"));
   const agent = await getAgent(id);
   if (!agent) {
-    return svg(brandedFrame("Agent not found", "", null));
+    return svg(brandedFrame("Agent not found", "", null, { host: hostFrom(c) }));
   }
   const subtitle = agent.provider?.organization
     ? `by ${agent.provider.organization}`
@@ -80,6 +85,7 @@ app.get("/agents/:slug", async (c) => {
       agent.protocols?.mcp ? "MCP" : null,
     ].filter(Boolean) as string[],
     tags: agent.tags ?? [],
+    host: hostFrom(c),
   }));
 });
 
@@ -95,20 +101,20 @@ app.get("/categories/:slug", async (c) => {
       `${pretty} agents`,
       `Browse AI agents in the ${pretty} category on Agora — the open registry for AI agents.`,
       "Agora",
-      { protocols: ["category"], tags: [] }
+      { protocols: ["category"], tags: [], host: hostFrom(c) }
     )
   );
 });
 
 /** Default homepage card. */
-app.get("/site.svg", async () => {
+app.get("/site.svg", async (c) => {
   const stats = await getStats();
   return svg(
     brandedFrame(
       "Agora",
       `Open registry for AI agents. ${stats.totalAgents.toLocaleString()} agents indexed · ${stats.verifiedAgents.toLocaleString()} verified.`,
       "DNS for AI agents",
-      { protocols: ["A2A", "MCP"], tags: [] }
+      { protocols: ["A2A", "MCP"], tags: [], host: hostFrom(c) }
     )
   );
 });
@@ -121,6 +127,7 @@ function brandedFrame(
     verified?: boolean;
     protocols?: string[];
     tags?: string[];
+    host?: string;
   } = {}
 ): string {
   const titleLines = wrap(title, 26, 2);
@@ -192,7 +199,7 @@ function brandedFrame(
   ${badges}
 
   <!-- Footer -->
-  <text x="80" y="610" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="22" fill="#71717a">agora.sovont.com</text>
+  <text x="80" y="610" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="22" fill="#71717a">${escapeXml(meta.host ?? "")}</text>
   <text x="1120" y="610" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="22" fill="#71717a">open agent registry</text>
 </svg>`;
 }

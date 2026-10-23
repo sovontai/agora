@@ -8,45 +8,79 @@ Agora is an open-source registry where AI agents can be registered, discovered, 
 
 AI agents are proliferating, but they can't find each other. MCP connects agents to tools. A2A lets agents talk to each other. **Agora lets agents discover each other in the first place.**
 
+## Quick Start
+
+Agora is self-hosted: you run your own instance. There's no public hosted registry right now.
+
+```bash
+git clone https://github.com/sovontai/agora.git && cd agora
+npm install
+export ADMIN_KEY=$(openssl rand -hex 24)   # keep this: it mints API keys
+npm run dev
+# → http://localhost:3340  (UI)
+# → http://localhost:3340/v1/docs  (interactive API docs)
+```
+
+Set `ADMIN_KEY` before starting — `POST /v1/keys` is fail-closed and requires it. Then mint an API key for writes:
+
+```bash
+curl -X POST http://localhost:3340/v1/keys \
+  -H "Authorization: Bearer $ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "me"}'
+# → {"id": "…", "key": "agora_…", …}  use the key as $AGORA_KEY
+```
+
+Or run it with Docker. The image keeps its SQLite database at `/data/agora.db`, so mount a volume there:
+
+```bash
+docker build -t agora .
+docker run -p 3340:3340 -e ADMIN_KEY -v agora-data:/data agora
+```
+
 ## Use it from Claude, Cursor, Zed, or any MCP client
 
-The fastest way to use Agora is from inside your AI assistant — install [`@sovont/agora-mcp`](mcp/) once and ask:
+Agora ships an MCP server in [`mcp/`](mcp/), so your AI assistant can search your registry for you:
 
 > "Find me an agent that parses PDF invoices."
+
+The packages aren't on npm yet, so build the server from this repo:
+
+```bash
+cd mcp && npm ci && npm run build
+```
+
+Then point your MCP client at the build and at your Agora instance:
 
 ```jsonc
 // claude_desktop_config.json (or any MCP client)
 {
   "mcpServers": {
-    "agora": { "command": "npx", "args": ["-y", "@sovont/agora-mcp"] }
+    "agora": {
+      "command": "node",
+      "args": ["/path/to/agora/mcp/dist/index.js"],
+      "env": { "AGORA_BASE_URL": "http://localhost:3340" }
+    }
   }
 }
 ```
 
 ## Use it from the CLI
 
-```bash
-npx -y @sovont/agora search "invoice parsing"
-npx -y @sovont/agora import https://acme.com/.well-known/agent.json
-```
-
-## Quick Start
-
-**Hosted instance:** [agora.sovont.com](https://agora.sovont.com)
+The CLI lives in [`sdk/`](sdk/). Build it, then run it with Node, or `npm link` it to get an `agora` command:
 
 ```bash
-# Self-host
-npm install
-ADMIN_KEY=$(openssl rand -hex 24) npm run dev
-# → http://localhost:3340  (UI)
-# → http://localhost:3340/v1/docs  (interactive API docs)
+cd sdk && npm ci && npm run build
+export AGORA_BASE_URL=http://localhost:3340   # the default, so optional for a local instance
+node dist/cli.js search "invoice parsing"
+node dist/cli.js import https://acme.com/.well-known/agent-card.json
 ```
-
-Set `ADMIN_KEY` before starting — `POST /v1/keys` is fail-closed and requires it.
 
 ## API
 
 Browse the full interactive spec at **`/v1/docs`** (Swagger UI) or fetch the raw spec from **`/v1/openapi.json`**.
+
+The examples below assume `AGORA_URL` points at your instance, for example `export AGORA_URL=http://localhost:3340`.
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
@@ -73,16 +107,16 @@ Browse the full interactive spec at **`/v1/docs`** (Swagger UI) or fetch the raw
 
 ```bash
 # Full-text search across name, description, capabilities, MCP tool names
-curl "https://agora.sovont.com/v1/agents?q=invoice"
+curl "$AGORA_URL/v1/agents?q=invoice"
 
 # Filter by category, tag, protocol, verified, status
-curl "https://agora.sovont.com/v1/agents?category=finance&protocol=a2a&verified=true"
+curl "$AGORA_URL/v1/agents?category=finance&protocol=a2a&verified=true"
 
 # Find agents that expose a specific MCP tool
-curl "https://agora.sovont.com/v1/agents?tool=send_email"
+curl "$AGORA_URL/v1/agents?tool=send_email"
 
 # Combine — verified+healthy+a2a results bubble to the top automatically
-curl "https://agora.sovont.com/v1/agents?q=parser&category=finance"
+curl "$AGORA_URL/v1/agents?q=parser&category=finance"
 ```
 
 Pagination: `?limit=20&offset=0`. Limit is capped at 100. Results are ordered by:
@@ -92,7 +126,7 @@ Pagination: `?limit=20&offset=0`. Limit is capped at 100. Results are ordered by
 ### Register an agent
 
 ```bash
-curl -X POST https://agora.sovont.com/v1/agents \
+curl -X POST "$AGORA_URL/v1/agents" \
   -H "Authorization: Bearer $AGORA_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -103,7 +137,7 @@ curl -X POST https://agora.sovont.com/v1/agents \
     "categories": ["finance", "document-processing"],
     "tags": ["invoice", "ocr", "pdf"],
     "protocols": {
-      "a2a": {"agentCardUrl": "https://agents.acme.com/.well-known/agent.json"},
+      "a2a": {"agentCardUrl": "https://agents.acme.com/.well-known/agent-card.json"},
       "mcp": {"serverUrl": "https://agents.acme.com/mcp"}
     }
   }'
@@ -115,7 +149,7 @@ If `protocols.mcp.serverUrl` is provided, Agora fetches the server's tool manife
 
 ```bash
 # 1. Initiate
-curl -X POST https://agora.sovont.com/v1/agents/$ID/verify \
+curl -X POST "$AGORA_URL/v1/agents/$ID/verify" \
   -H "Authorization: Bearer $AGORA_KEY" \
   -H "Content-Type: application/json" \
   -d '{"domain": "acme.com"}'
@@ -123,7 +157,7 @@ curl -X POST https://agora.sovont.com/v1/agents/$ID/verify \
 # 2. Add returned TXT to: _agora-verify.acme.com
 
 # 3. Confirm
-curl -X POST https://agora.sovont.com/v1/agents/$ID/verify/confirm \
+curl -X POST "$AGORA_URL/v1/agents/$ID/verify/confirm" \
   -H "Authorization: Bearer $AGORA_KEY"
 ```
 
@@ -131,11 +165,11 @@ The domain must equal, be a parent of, or be a subdomain of the agent URL's host
 
 ### Verification badge
 
-Embed a "Listed on Agora" badge on your agent's site:
+Embed a "Listed on Agora" badge on your agent's site. Replace `agora.example.com` with your instance's public URL:
 
 ```html
-<a href="https://agora.sovont.com/agents/AGENT_ID">
-  <img src="https://agora.sovont.com/v1/badge/AGENT_ID.svg" alt="Listed on Agora"/>
+<a href="https://agora.example.com/agents/AGENT_ID">
+  <img src="https://agora.example.com/v1/badge/AGENT_ID.svg" alt="Listed on Agora"/>
 </a>
 ```
 
@@ -143,15 +177,19 @@ It updates automatically from "registered" → "verified" once your DNS TXT clea
 
 ## TypeScript SDK
 
+The SDK isn't on npm yet. Build it from [`sdk/`](sdk/) and install it into your project from the folder:
+
 ```bash
-npm install @sovont/agora
+cd sdk && npm ci && npm run build
+cd /your/project && npm install /path/to/agora/sdk
 ```
 
 ```ts
 import { Agora } from '@sovont/agora';
 
-const agora = new Agora();                       // anonymous reads
-const auth = new Agora({ apiKey: 'agora_…' });   // authenticated writes
+const baseUrl = 'http://localhost:3340';             // your instance (this is also the default)
+const agora = new Agora({ baseUrl });                // anonymous reads
+const auth = new Agora({ baseUrl, apiKey: 'agora_…' }); // authenticated writes
 
 const results = await agora.search({ q: 'invoice parsing' });
 const tooling = await agora.search({ tool: 'send_email' });
@@ -203,15 +241,17 @@ Both can also be triggered on demand: `POST /v1/health/check` and `POST /v1/heal
 
 | Package | What it is |
 |---------|-----------|
-| [`@sovont/agora`](sdk/) | TypeScript SDK + CLI (single install). `import { Agora }` in code; `npx @sovont/agora` from a terminal. |
+| [`@sovont/agora`](sdk/) | TypeScript SDK + CLI (single install). `import { Agora }` in code; `node sdk/dist/cli.js` (or `agora` after `npm link`) from a terminal. |
 | [`@sovont/agora-mcp`](mcp/) | MCP server. Talk to Agora from Claude, Cursor, Zed, Continue. |
 | [`sovontai/agora/.github/actions/register`](.github/actions/register/) | GitHub Action to register-on-release. |
 
+Neither package is published to npm yet. Build them from this repo as shown above.
+
 ```bash
-# CLI
-npx -y @sovont/agora search "invoice parsing"
-npx -y @sovont/agora stats
-npx -y @sovont/agora import https://acme.com/.well-known/agent.json
+# CLI, from the repo root, after building sdk/
+node sdk/dist/cli.js search "invoice parsing"
+node sdk/dist/cli.js stats
+node sdk/dist/cli.js import https://acme.com/.well-known/agent-card.json
 ```
 
 ```yaml
@@ -219,7 +259,8 @@ npx -y @sovont/agora import https://acme.com/.well-known/agent.json
 - uses: sovontai/agora/.github/actions/register@main
   with:
     api-key: ${{ secrets.AGORA_KEY }}
-    agent-card-url: https://acme.com/.well-known/agent.json
+    base-url: https://agora.example.com
+    agent-card-url: https://acme.com/.well-known/agent-card.json
 ```
 
 ## SEO & crawlability
@@ -236,12 +277,12 @@ Every agent page is server-rendered with `<title>`, `<meta description>`, canoni
 Admins can bulk-import agents from a list of A2A card URLs:
 
 ```bash
-curl -X POST https://agora.sovont.com/v1/import/bulk \
+curl -X POST "$AGORA_URL/v1/import/bulk" \
   -H "Authorization: Bearer $ADMIN_KEY" \
   -H "Content-Type: application/json" \
   -d '{ "urls": [
-    "https://a.example.com/.well-known/agent.json",
-    "https://b.example.com/.well-known/agent.json"
+    "https://a.example.com/.well-known/agent-card.json",
+    "https://b.example.com/.well-known/agent-card.json"
   ]}'
 ```
 
@@ -249,11 +290,11 @@ Imported listings are owned by a `claimable:*` sentinel — the real owner can c
 
 ```bash
 # 1. Begin a claim (anonymous)
-curl -X POST https://agora.sovont.com/v1/agents/$ID/claim
+curl -X POST "$AGORA_URL/v1/agents/$ID/claim"
 # → returns TXT record to add at _agora-verify.<host>
 
 # 2. After DNS propagates
-curl -X POST https://agora.sovont.com/v1/agents/$ID/claim/confirm
+curl -X POST "$AGORA_URL/v1/agents/$ID/claim/confirm"
 # → returns { claimed: true, apiKey: { key: "agora_…" } }
 ```
 
@@ -276,6 +317,8 @@ curl -X POST https://agora.sovont.com/v1/agents/$ID/claim/confirm
 - [x] `.well-known/agora` discovery endpoint
 - [x] Rate limiting
 - [x] **Claim-your-listing flow** for imported agents
+- [ ] Publish `@sovont/agora` and `@sovont/agora-mcp` to npm
+- [ ] Public hosted registry
 - [ ] Federation (multi-instance sync)
 - [ ] Cryptographic agent identity (DID / signed cards)
 - [ ] Trust scoring (uptime + verification + curation signals)
@@ -285,8 +328,8 @@ curl -X POST https://agora.sovont.com/v1/agents/$ID/claim/confirm
 
 ## License
 
-Apache 2.0
+Apache 2.0. See [LICENSE](LICENSE).
 
 ---
 
-Built by [Sovont](https://sovont.com) — Production AI Infrastructure
+Built by [Sovont](https://sovont.com) — AI infrastructure, from power to production.
