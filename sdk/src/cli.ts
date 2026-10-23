@@ -16,7 +16,7 @@
  *   agora whoami
  */
 
-import { Agora, AgoraError } from "./index.js";
+import { Agora, AgoraError, DEFAULT_BASE_URL } from "./index.js";
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -57,12 +57,12 @@ async function saveConfig(cfg: Config) {
   });
 }
 
-async function client(): Promise<{ agora: Agora; cfg: Config }> {
+async function client(): Promise<{ agora: Agora; cfg: Config; baseUrl: string }> {
   const cfg = await loadConfig();
-  const baseUrl = process.env.AGORA_BASE_URL ?? cfg.baseUrl;
+  const baseUrl = (process.env.AGORA_BASE_URL ?? cfg.baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, "");
   const apiKey = process.env.AGORA_KEY ?? cfg.apiKey;
   const agora = new Agora({ baseUrl, apiKey });
-  return { agora, cfg };
+  return { agora, cfg, baseUrl };
 }
 
 function out(value: unknown) {
@@ -156,9 +156,9 @@ async function cmdGet(args: string[]) {
 }
 
 async function cmdStats() {
-  const { agora } = await client();
+  const { agora, baseUrl } = await client();
   const stats = await agora.stats();
-  console.log(`${bold("Agora")} ${dim("agora.sovont.com")}`);
+  console.log(`${bold("Agora")} ${dim(baseUrl)}`);
   console.log(`  ${bold(String(stats.totalAgents).padStart(6))}  total agents`);
   console.log(
     `  ${green(String(stats.verifiedAgents).padStart(6))}  verified`
@@ -181,22 +181,22 @@ async function cmdRegister(args: string[]) {
   if (!file) die("Usage: agora register <file.json>");
   const raw = await fs.readFile(file === "-" ? "/dev/stdin" : file, "utf-8");
   const input = JSON.parse(raw);
-  const { agora } = await client();
+  const { agora, baseUrl } = await client();
   const agent = await agora.register(input);
   console.log(green(`✓ Registered ${agent.name}`));
   console.log(dim(`  id:   ${agent.id}`));
-  console.log(dim(`  page: https://agora.sovont.com/agents/${agent.id}`));
+  console.log(dim(`  page: ${baseUrl}/agents/${agent.id}`));
 }
 
 async function cmdImport(args: string[]) {
   const url = args[0];
   if (!url) die("Usage: agora import <a2a-card-url>");
-  const { agora } = await client();
+  const { agora, baseUrl } = await client();
   const result = await agora.importA2A(url);
   const verb = result.updated ? "Updated" : "Imported";
   console.log(green(`✓ ${verb} ${result.agent.name}`));
   console.log(dim(`  id:   ${result.agent.id}`));
-  console.log(dim(`  page: https://agora.sovont.com/agents/${result.agent.id}`));
+  console.log(dim(`  page: ${baseUrl}/agents/${result.agent.id}`));
 }
 
 async function cmdBulkImport(args: string[]) {
@@ -263,8 +263,8 @@ async function cmdInit() {
   console.log(`${bold("Agora")} init — first-time setup.`);
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   const baseUrl =
-    (await rl.question(`Registry URL [https://agora.sovont.com]: `)) ||
-    "https://agora.sovont.com";
+    (await rl.question(`Registry URL [${DEFAULT_BASE_URL}]: `)) ||
+    DEFAULT_BASE_URL;
   const apiKey = await rl.question(`API key (leave blank for read-only): `);
   rl.close();
   await saveConfig({
@@ -275,8 +275,7 @@ async function cmdInit() {
 }
 
 async function cmdWhoami() {
-  const { agora, cfg } = await client();
-  const baseUrl = process.env.AGORA_BASE_URL ?? cfg.baseUrl ?? "https://agora.sovont.com";
+  const { agora, cfg, baseUrl } = await client();
   console.log(`Base URL: ${cyan(baseUrl)}`);
   const hasKey = Boolean(process.env.AGORA_KEY ?? cfg.apiKey);
   console.log(`API key:  ${hasKey ? green("set") : yellow("not set (read-only)")}`);

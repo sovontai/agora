@@ -9,11 +9,10 @@ inputs:
     description: "Agora API key (use a repository secret)."
     required: true
   base-url:
-    description: "Agora instance URL."
-    required: false
-    default: "https://agora.sovont.com"
+    description: "URL of the Agora instance to register with, e.g. https://agora.example.com."
+    required: true
   agent-card-url:
-    description: "URL of an A2A `/.well-known/agent.json`. Use this OR `agent-json`."
+    description: "URL of an A2A Agent Card (usually `/.well-known/agent-card.json`). Use this OR `agent-json`."
     required: false
   agent-json:
     description: "Path to a JSON file describing the agent (Agora register schema). Use this OR `agent-card-url`."
@@ -43,6 +42,13 @@ runs:
       uses: actions/setup-node@v4
       with:
         node-version: "20"
+    # The CLI isn't published to npm, so build it from the copy of this repo the runner downloaded.
+    - name: Build the Agora CLI
+      shell: bash
+      working-directory: ${{ github.action_path }}/../../../sdk
+      run: |
+        npm ci --no-audit --no-fund
+        npm run build
     - name: Register on Agora
       id: run
       shell: bash
@@ -51,14 +57,15 @@ runs:
         AGORA_BASE_URL: ${{ inputs.base-url }}
         AGENT_CARD_URL: ${{ inputs.agent-card-url }}
         AGENT_JSON: ${{ inputs.agent-json }}
+        AGORA_CLI: ${{ github.action_path }}/../../../sdk/dist/cli.js
       run: |
         set -euo pipefail
         if [ -n "$AGENT_CARD_URL" ]; then
-          OUT="$(npx -y @sovont/agora@latest import "$AGENT_CARD_URL")"
+          OUT="$(node "$AGORA_CLI" import "$AGENT_CARD_URL")"
         else
-          OUT="$(npx -y @sovont/agora@latest register "$AGENT_JSON")"
+          OUT="$(node "$AGORA_CLI" register "$AGENT_JSON")"
         fi
         echo "$OUT"
         ID="$(echo "$OUT" | sed -n 's/.*id: *\([a-f0-9-]\{36\}\).*/\1/p' | head -1)"
         echo "agent-id=$ID" >> "$GITHUB_OUTPUT"
-        echo "agent-page=${{ inputs.base-url }}/agents/$ID" >> "$GITHUB_OUTPUT"
+        echo "agent-page=${AGORA_BASE_URL%/}/agents/$ID" >> "$GITHUB_OUTPUT"

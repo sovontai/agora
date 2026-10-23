@@ -12,14 +12,24 @@ This is an [MCP](https://modelcontextprotocol.io) server that wraps the [Agora](
 
 ## Install
 
+The package isn't on npm yet, so build it from the [Agora repo](https://github.com/sovontai/agora):
+
+```bash
+git clone https://github.com/sovontai/agora.git
+cd agora/mcp && npm ci && npm run build
+```
+
+That produces `dist/index.js`. Point your client at it with `node`, and set `AGORA_BASE_URL` to your Agora instance. You'll need one running: see [Quick Start](../README.md#quick-start) to self-host.
+
 ### Claude Desktop / Code (or any client with a `claude_desktop_config.json`)
 
 ```json
 {
   "mcpServers": {
     "agora": {
-      "command": "npx",
-      "args": ["-y", "@sovont/agora-mcp"]
+      "command": "node",
+      "args": ["/path/to/agora/mcp/dist/index.js"],
+      "env": { "AGORA_BASE_URL": "http://localhost:3340" }
     }
   }
 }
@@ -31,8 +41,9 @@ This is an [MCP](https://modelcontextprotocol.io) server that wraps the [Agora](
 {
   "mcpServers": {
     "agora": {
-      "command": "npx",
-      "args": ["-y", "@sovont/agora-mcp"]
+      "command": "node",
+      "args": ["/path/to/agora/mcp/dist/index.js"],
+      "env": { "AGORA_BASE_URL": "http://localhost:3340" }
     }
   }
 }
@@ -44,7 +55,11 @@ This is an [MCP](https://modelcontextprotocol.io) server that wraps the [Agora](
 {
   "context_servers": {
     "agora": {
-      "command": { "path": "npx", "args": ["-y", "@sovont/agora-mcp"] }
+      "command": {
+        "path": "node",
+        "args": ["/path/to/agora/mcp/dist/index.js"],
+        "env": { "AGORA_BASE_URL": "http://localhost:3340" }
+      }
     }
   }
 }
@@ -55,7 +70,7 @@ This is an [MCP](https://modelcontextprotocol.io) server that wraps the [Agora](
 Run it directly. It speaks the standard stdio transport:
 
 ```bash
-npx -y @sovont/agora-mcp
+AGORA_BASE_URL=http://localhost:3340 node /path/to/agora/mcp/dist/index.js
 ```
 
 ## Tools
@@ -74,7 +89,7 @@ Write tools, enabled when `AGORA_KEY` is set:
 | Tool | What it does |
 |------|---------------|
 | `register_agent` | Register a new agent. |
-| `import_a2a` | Import from an A2A `/.well-known/agent.json` (idempotent). |
+| `import_a2a` | Import from an A2A Agent Card URL, usually `/.well-known/agent-card.json` (idempotent). |
 | `verify_domain` | Start DNS-TXT domain verification. |
 | `verify_confirm` | Re-check the TXT record and complete verification. |
 | `ping_agent` | Health-probe an agent. |
@@ -85,32 +100,19 @@ Set in the `env` block of your MCP client config (or as shell env vars):
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `AGORA_BASE_URL` | `https://agora.sovont.com` | Which Agora instance to talk to. |
+| `AGORA_BASE_URL` | `http://localhost:3340` | Which Agora instance to talk to. The default is a local server on Agora's default port. |
 | `AGORA_KEY` | (unset) | API key. Required for write tools. |
 
 ```json
 {
   "mcpServers": {
     "agora": {
-      "command": "npx",
-      "args": ["-y", "@sovont/agora-mcp"],
-      "env": { "AGORA_KEY": "agora_…" }
-    }
-  }
-}
-```
-
-## Self-hosted
-
-Point at your own instance:
-
-```json
-{
-  "mcpServers": {
-    "agora": {
-      "command": "npx",
-      "args": ["-y", "@sovont/agora-mcp"],
-      "env": { "AGORA_BASE_URL": "https://agora.example.com" }
+      "command": "node",
+      "args": ["/path/to/agora/mcp/dist/index.js"],
+      "env": {
+        "AGORA_BASE_URL": "https://agora.example.com",
+        "AGORA_KEY": "agora_…"
+      }
     }
   }
 }
@@ -118,4 +120,4 @@ Point at your own instance:
 
 ## License
 
-Apache 2.0
+Apache 2.0. See the [LICENSE](../LICENSE) in the repo root.

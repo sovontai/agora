@@ -16,7 +16,7 @@ Active development happens on `main`. We patch the most recent minor release.
 
 - A description of the issue.
 - Steps to reproduce, if you have them.
-- The affected component (server, SDK, MCP server, hosted instance).
+- The affected component (server, SDK, CLI, MCP server, GitHub Action).
 - Whether you'd like a credit / how you'd like to be acknowledged.
 
 You'll get an acknowledgement within 72 hours. We aim to ship a fix for high-severity issues within 7 days, and disclose responsibly after that.
@@ -27,7 +27,7 @@ In scope:
 - The Agora server (`src/`).
 - The TypeScript SDK and CLI (`@sovont/agora`).
 - The MCP server (`@sovont/agora-mcp`).
-- The hosted instance at agora.sovont.com.
+- The register-on-release GitHub Action (`.github/actions/register`).
 
 Examples of qualifying issues:
 - SQL injection / authentication bypass / privilege escalation.

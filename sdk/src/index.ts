@@ -162,7 +162,8 @@ export class AgoraError extends Error {
   }
 }
 
-const DEFAULT_BASE_URL = "https://agora.sovont.com";
+/** Where a local Agora server listens by default. Pass `baseUrl` to use another instance. */
+export const DEFAULT_BASE_URL = "http://localhost:3340";
 
 export class Agora {
   private baseUrl: string;
